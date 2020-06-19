@@ -15,6 +15,11 @@ struct Config {
     download_location: String,
     plex_server_library: String,
     plex_token: String,
+    min_file_size: i64,
+    ideal_file_size: i64,
+    min_seeders: i32,
+    target_categories: Vec<String>,
+    api_backoff: i32,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +94,7 @@ fn get_rarbg_token() -> String {
 fn get_rarbg_magnet(imdb_guid: String, token: String) -> String {
     let mut result: String = String::new();
     let mut success = false;
-    let backoff = 1000;
+    let mut backoff = 1000;
     let attempts = 0;
     while !success {
         let path = format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token);
@@ -110,7 +115,8 @@ fn get_rarbg_magnet(imdb_guid: String, token: String) -> String {
             if attempts >= 10 {
                 panic!("Unable to reach rarbg after {} attempts", attempts);
             }
-            sleep(time::Duration::from_millis(backoff + 500));
+            backoff += 250;
+            sleep(time::Duration::from_millis(backoff));
         }
     }
     result
