@@ -49,6 +49,12 @@ struct RarbgToken {
 }
 
 #[derive(Deserialize)]
+struct RarbgError {
+    error: String,
+    error_code: i32,
+}
+
+#[derive(Deserialize)]
 struct RarbgResults {
     torrent_results: Vec<RarbgMagnet>,
 }
@@ -63,12 +69,12 @@ struct RarbgMagnet {
     size: i64,
 }
 
-fn get_imdb_list(list: String) -> Vec<String>{
+fn get_imdb_list(list: String) -> Vec<String> {
     let path = format!("https://www.imdb.com/list/{}/export?ref_=ttls_otexp", list);
     let resp = ureq::get(path.as_str()).call();
     let csv = if resp.ok() { resp.into_string().unwrap() } else { String::new() };
     let mut result = Vec::new();
-    let lines : Vec<&str> = csv.split('\n').collect();
+    let lines: Vec<&str> = csv.split('\n').collect();
     for i in 1..lines.len() {
         if lines[i].contains(",") {
             let t: Vec<&str> = lines[i].split(',').collect();
@@ -91,25 +97,29 @@ fn get_rarbg_token() -> String {
     result
 }
 
-fn get_rarbg_magnet(imdb_guid: String, token: String) -> String {
-    let mut result: String = String::new();
+fn get_rarbg_magnet(imdb_guid: String, token: String) -> Option<String> {
+    let mut result: Option<String> = None;
     let mut success = false;
     let mut backoff = 1000;
-    let attempts = 0;
+    let mut attempts = 0;
     while !success {
+        attempts += 1;
         let path = format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token);
         let resp = ureq::get(path.as_str())
             .set("Content-Type", "application/json")
             .set("Accept", "application/json")
             .call();
         if resp.ok() {
+            //TODO: rename this to response_string
             let t = &resp.into_string().unwrap();
             if let Ok(results) = serde_json::from_str::<RarbgResults>(t) {
                 success = true;
                 let filtered_results: Vec<&RarbgMagnet> = results.torrent_results.iter().filter(|&x|
                     (x.category.ends_with("x264/1080") || x.category.ends_with("x264/720")) && x.seeders > 2 && x.size > 1610612736).collect();
                 let closest_match = filtered_results.iter().min_by(|x, y| (4294967296 - x.size).abs().cmp(&(4294967296 - y.size).abs())).unwrap();
-                result = closest_match.download.clone()
+                result = Some(closest_match.download.clone());
+            } else if let Ok(results) = serde_json::from_str::<RarbgError>(t) {
+                success = results.error_code == 20;
             }
         } else {
             if attempts >= 10 {
@@ -203,11 +213,6 @@ fn main() {
             .conflicts_with("magnet")
             .conflicts_with("imdb_id")
             .about("imdb list"))
-        .arg(Arg::with_name("unique")
-            .short('u')
-            .long("unique")
-            .takes_value(false)
-            .about("Download if item doesn't exist"))
         .get_matches();
 
     let env = match env::var("QABLE") {
@@ -221,12 +226,7 @@ fn main() {
         Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
     };
 
-    let plex_guids =
-        if matches.is_present("unique") {
-            get_plex_library_guids(&config.plex_server_library, &config.plex_token)
-        } else {
-            vec!()
-        };
+    let plex_guids = get_plex_library_guids(&config.plex_server_library, &config.plex_token);
 
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
         let imdb_list = get_imdb_list(imdb_list_id.into());
@@ -234,9 +234,12 @@ fn main() {
             if !plex_guids.contains(&imdb_id.to_lowercase()) {
                 let token = get_rarbg_token();
                 if let Some(cookie) = get_cookie(&config) {
-                    let magnet = get_rarbg_magnet(imdb_id.clone(), token);
-                    println!("Downloading {}", &imdb_id);
-                    add_torrent(&config, &cookie, &magnet);
+                    if let Some(magnet) = get_rarbg_magnet(imdb_id.clone(), token) {
+                        add_torrent(&config, &cookie, &magnet);
+                        println!("Downloading {}", &imdb_id);
+                    } else {
+                        println!("Skipping {}", &imdb_id);
+                    }
                 }
             }
         }
@@ -244,8 +247,12 @@ fn main() {
         if !plex_guids.contains(&imdb_id.to_lowercase()) {
             let token = get_rarbg_token();
             if let Some(cookie) = get_cookie(&config) {
-                let magnet = get_rarbg_magnet(imdb_id.into(), token);
-                add_torrent(&config, &cookie, &magnet);
+                if let Some(magnet) = get_rarbg_magnet(imdb_id.into(), token) {
+                    add_torrent(&config, &cookie, &magnet);
+                    println!("Downloading {}", &imdb_id);
+                } else {
+                    println!("Skipping {}", &imdb_id);
+                }
             }
         }
     } else if let Some(magnet) = matches.value_of("magnet") {
