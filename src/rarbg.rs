@@ -4,6 +4,7 @@ use std::time;
 use serde::Deserialize;
 
 use crate::config::Config;
+use crate::request::get_response;
 
 #[derive(Deserialize)]
 struct RToken {
@@ -25,14 +26,33 @@ struct RMagnet {
     size: i64,
 }
 
+pub fn get_rarbg_token(config: &Config) -> Option<String> {
+    let mut token: Option<String> = None;
+    let mut complete = false;
+    let mut backoff = config.api_backoff_millis;
+    let mut attempts = 0;
 
-fn get_rarbg_token() -> String {
-    let resp = ureq::get("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable")
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json")
-        .call();
-    //TODO: add retry
-    serde_json::from_str::<RToken>(&resp.into_string().unwrap()).unwrap().token
+    //TODO: wrap this logic as a function which accepts a function for OK handler
+    while !complete {
+        attempts += 1;
+        let response = get_response(
+            "https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
+        &[("Content-Type", "application/json"), ("Accept", "application/json")]);
+        if response.ok() {
+            if let Ok(token_result) = serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
+                complete = true;
+                token = Some(token_result.token);
+            }
+        }
+        if !complete {
+            if attempts >= config.retries {
+                complete = true;
+            }
+            backoff += config.api_backoff_millis;
+            sleep(time::Duration::from_millis(backoff));
+        }
+    }
+    token
 }
 
 fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet> {
@@ -41,27 +61,23 @@ fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet
             && magnet.seeders >= config.min_seeders && magnet.size > config.min_file_size).collect()
 }
 
-fn match_magnet<'a>(config: & Config, magnets: &'a[&RMagnet]) -> &'a RMagnet {
+fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {
     magnets.iter().min_by(|left, right| (config.ideal_file_size - left.size).abs().cmp(&(config.ideal_file_size - right.size).abs())).unwrap()
 }
 
 //TODO: log to file the list/imdb id/magnet, and details about each step
-pub fn get_rarbg_magnet(config: &Config, imdb_guid: &str) -> Option<String> {
-    let token = get_rarbg_token();
-
+pub fn get_rarbg_magnet(config: &Config, token: &str, imdb_guid: &str) -> Option<String> {
     let mut result: Option<String> = None;
     let mut complete = false;
     let mut backoff = config.api_backoff_millis;
     let mut attempts = 0;
     while !complete {
         attempts += 1;
-        let path = format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token);
-        let resp = ureq::get(path.as_str())
-            .set("Content-Type", "application/json")
-            .set("Accept", "application/json")
-            .call();
-        if resp.ok() {
-            if let Ok(search_results) = serde_json::from_str::<RResults>(&resp.into_string().unwrap()) {
+        let response = get_response(
+            &format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
+            &[("Content-Type", "application/json"), ("Accept", "application/json")]);
+        if response.ok() {
+            if let Ok(search_results) = serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
                 complete = true;
                 //TODO: if filtered magnets is 0 change filter params to get a match?
                 let filtered_magnets = filter_magnets(&config, &search_results);
