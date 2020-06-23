@@ -1,16 +1,18 @@
-fn get_cookie(path: &str, password: &str) -> Option<String> {
-    ureq::post(path)
+use crate::config::Config;
+
+fn get_cookie(config: &Config) -> Option<String> {
+    ureq::post(&config.path)
         .set("content-type", "application/json")
         .send_json(serde_json::json!({
                 "method":"auth.login",
-                "params":[password],
+                "params":[&config.password],
                 "id":42}))
         .header("set-cookie").map(|x| { x.to_owned() })
 }
 
-pub fn add_torrent(path: &str, password: &str, magnet: &str, download_location: &str, move_completed_path: &str) {
-    if let Some(cookie) = get_cookie(path, password) {
-        ureq::post(path)
+pub fn add_torrent(config: &Config, magnet: &str) {
+    if let Some(cookie) = get_cookie(&config) {
+        ureq::post(&config.path)
             .set("content-type", "application/json")
             .set("Cookie", &cookie)
             .send_json(serde_json::json!({
@@ -21,8 +23,8 @@ pub fn add_torrent(path: &str, password: &str, magnet: &str, download_location: 
                                 "path": magnet,
                                 "options":
                                     {
-                                        "download_location": download_location,
-                                        "move_completed_path": move_completed_path,
+                                        "download_location": &config.download_location,
+                                        "move_completed_path": &config.move_completed_path,
                                         "file_priorities":[],
                                         "add_paused":false,
                                         "compact_allocation":false,

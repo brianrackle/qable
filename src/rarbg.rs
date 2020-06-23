@@ -1,17 +1,13 @@
-use serde::Deserialize;
 use std::thread::sleep;
-use std::{env, time};
+use std::time;
 
+use serde::Deserialize;
+
+use crate::config::Config;
 
 #[derive(Deserialize)]
 struct RToken {
     token: String,
-}
-
-#[derive(Deserialize)]
-struct RError {
-    error: String,
-    error_code: i32,
 }
 
 #[derive(Deserialize)]
@@ -39,16 +35,25 @@ fn get_rarbg_token() -> String {
     serde_json::from_str::<RToken>(&resp.into_string().unwrap()).unwrap().token
 }
 
+fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet> {
+    results.torrent_results.iter().filter(|&magnet|
+        config.target_categories.iter().any(|category| magnet.category.ends_with(category))
+            && magnet.seeders >= config.min_seeders && magnet.size > config.min_file_size).collect()
+}
+
+fn match_magnet<'a>(config: & Config, magnets: &'a[&RMagnet]) -> &'a RMagnet {
+    magnets.iter().min_by(|left, right| (config.ideal_file_size - left.size).abs().cmp(&(config.ideal_file_size - right.size).abs())).unwrap()
+}
+
 //TODO: log to file the list/imdb id/magnet, and details about each step
-//TODO: add options as input to replace backoff and attempts
-pub fn get_rarbg_magnet(imdb_guid: &str) -> Option<String> {
+pub fn get_rarbg_magnet(config: &Config, imdb_guid: &str) -> Option<String> {
     let token = get_rarbg_token();
 
     let mut result: Option<String> = None;
-    let mut success = false;
-    let mut backoff = 1000;
+    let mut complete = false;
+    let mut backoff = config.api_backoff_millis;
     let mut attempts = 0;
-    while !success {
+    while !complete {
         attempts += 1;
         let path = format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token);
         let resp = ureq::get(path.as_str())
@@ -56,31 +61,26 @@ pub fn get_rarbg_magnet(imdb_guid: &str) -> Option<String> {
             .set("Accept", "application/json")
             .call();
         if resp.ok() {
-            //TODO: rename this to response_string
-            let t = &resp.into_string().unwrap();
-            if let Ok(results) = serde_json::from_str::<RResults>(t) {
-                success = true;
-                let filtered_results: Vec<&RMagnet> = results.torrent_results.iter().filter(|&x|
-                    (x.category.ends_with("x264/1080") || x.category.ends_with("x264/720")) && x.seeders > 2 && x.size > 1610612736).collect();
-                let closest_match = filtered_results.iter().min_by(|x, y| (4294967296 - x.size).abs().cmp(&(4294967296 - y.size).abs())).unwrap();
-                result = Some(closest_match.download.clone());
-            } else if let Ok(results) = serde_json::from_str::<RError>(t) {
-                backoff += 250;
-                success = results.error_code == 20;
+            if let Ok(search_results) = serde_json::from_str::<RResults>(&resp.into_string().unwrap()) {
+                complete = true;
+                //TODO: if filtered magnets is 0 change filter params to get a match?
+                let filtered_magnets = filter_magnets(&config, &search_results);
+                if !filtered_magnets.is_empty() {
+                    let magnet_match = match_magnet(&config, &filtered_magnets);
+                    result = Some(magnet_match.download.clone());
+                }
             }
         }
-        if !success {
-            if attempts >= 10 {
-                //TODO: rename success or refactor loop. Setting success to true during failure doesnt make sense
-                success = true;
+        if !complete {
+            if attempts >= config.retries {
+                complete = true;
             }
-            backoff += 250;
+            backoff += config.api_backoff_millis;
             sleep(time::Duration::from_millis(backoff));
         }
     }
     result
 }
-
 
 #[cfg(test)]
 mod test {

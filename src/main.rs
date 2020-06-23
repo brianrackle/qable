@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, time};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -6,36 +6,23 @@ use std::path::Path;
 use clap::{App, Arg, ArgMatches};
 use serde::Deserialize;
 
+use config::Config;
 use deluge::add_torrent;
 use imdb::get_imdb_list;
 use plex::get_plex_library_guids;
 use rarbg::get_rarbg_magnet;
+use std::thread::sleep;
 
+mod config;
 mod imdb;
 mod deluge;
 mod plex;
 mod rarbg;
 
-#[derive(Deserialize)]
-struct Config {
-    path: String,
-    password: String,
-    move_completed_path: String,
-    download_location: String,
-    plex_server_library: String,
-    plex_token: String,
-    min_file_size: i64,
-    ideal_file_size: i64,
-    min_seeders: i32,
-    target_categories: Vec<String>,
-    api_backoff: i32,
-    download_delay: i32,
-}
-
 fn add_torrent_by_imdb_id(plex_guids: &Vec<String>, imdb_id: &str, config: &Config) {
     if !plex_guids.contains(&imdb_id.to_lowercase()) {
-        if let Some(magnet) = get_rarbg_magnet(&imdb_id) {
-            add_torrent(&config.path, &config.password, &magnet, &config.download_location, &config.move_completed_path);
+        if let Some(magnet) = get_rarbg_magnet(&config,&imdb_id) {
+            add_torrent(&config, &magnet);
             println!("Downloading {}", &imdb_id);
         } else {
             println!("Skipping {}", &imdb_id);
@@ -73,6 +60,8 @@ fn init_args() -> ArgMatches {
 }
 
 fn main() {
+    //TODO: add ability to compare plex display name with imdb name and fix
+    //TODO: add restart option that will pick up list download from last spot
     let matches = init_args();
     let env = match env::var("QABLE") {
         Err(_) => env::var("HOME").expect("$HOME not defined") + "/.qable/config.json",
@@ -90,11 +79,12 @@ fn main() {
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
         for imdb_id in get_imdb_list(imdb_list_id) {
             add_torrent_by_imdb_id(&plex_guids, &imdb_id, &config);
+            sleep(time::Duration::from_millis(config.list_frequency_millis));
         }
     } else if let Some(imdb_id) = matches.value_of("imdb_id") {
         add_torrent_by_imdb_id(&plex_guids, &imdb_id, &config);
     } else if let Some(magnet) = matches.value_of("magnet") {
-        add_torrent(&config.path, &config.password, &magnet, &config.download_location, &config.move_completed_path);
+        add_torrent(&config, &magnet);
     }
 }
 
