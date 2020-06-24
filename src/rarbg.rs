@@ -28,19 +28,18 @@ struct RMagnet {
 }
 
 pub fn get_rarbg_token(config: &Config) -> Option<String> {
-    let ok_response = |response: Box<Response>| -> (bool, Option<String>) {
-        match serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
-            Err(_) => (false, None),
-            Ok(token_result) => {
-                (true, Some(token_result.token))
-            }
-        }
-    };
     get_response_body("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
                       config.api_backoff_millis,
                       config.retries,
-                      ok_response)
+                      |response: Box<Response>| -> (bool, Option<String>) {
+                          match serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
+                              Err(_) => (false, None),
+                              Ok(token_result) => {
+                                  (true, Some(token_result.token))
+                              }
+                          }
+                      })
 }
 
 fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet> {
@@ -55,25 +54,24 @@ fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {
 
 //TODO: log to file the list/imdb id/magnet, and details about each step
 pub fn get_rarbg_magnet(config: &Config, token: &str, imdb_guid: &str) -> Option<String> {
-    let ok_response = |response: Box<Response>| -> (bool, Option<String>) {
-        match serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
-            Err(_) => (false, None),
-            Ok(search_results) => {
-                let filtered_magnets = filter_magnets(&config, &search_results);
-                if !filtered_magnets.is_empty() {
-                    let magnet_match = match_magnet(&config, &filtered_magnets);
-                    (true, Some(magnet_match.download.clone()))
-                } else {
-                    (false, None)
-                }
-            }
-        }
-    };
     get_response_body(&format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
                       config.api_backoff_millis,
                       config.retries,
-                      ok_response)
+                      |response: Box<Response>| -> (bool, Option<String>) {
+                          match serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
+                              Err(_) => (false, None),
+                              Ok(search_results) => {
+                                  let filtered_magnets = filter_magnets(&config, &search_results);
+                                  if !filtered_magnets.is_empty() {
+                                      let magnet_match = match_magnet(&config, &filtered_magnets);
+                                      (true, Some(magnet_match.download.clone()))
+                                  } else {
+                                      (false, None)
+                                  }
+                              }
+                          }
+                      })
 }
 
 #[cfg(test)]
