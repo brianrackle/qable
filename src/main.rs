@@ -19,7 +19,6 @@ mod deluge;
 mod plex;
 mod rarbg;
 
-
 //TODO: error on plex_guids None or imdb_id None
 fn add_torrent_by_imdb_id(config: &Config, token_option :&Option<String>, plex_guids : &[String], imdb_id: &str) {
     if let Some(token) = token_option {

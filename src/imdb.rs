@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-struct ImdbList {
+struct ImdbRow {
     Position: String,
     Const: String,
 }
@@ -11,9 +11,10 @@ pub fn get_imdb_list(list: &str) -> Vec<String> {
     let resp = ureq::get(path.as_str()).call();
     let csv = resp.into_string().unwrap_or_else(|e| String::new());
     let mut result: Vec<String> = Vec::new();
-    for line in csv.lines().skip(1) {
-        if let Some(imbd_id) = line.split(',').nth(1) {
-            result.push(imbd_id.into());
+    let mut rdr = csv::Reader::from_reader(csv.as_bytes());
+    for line in rdr.deserialize::<ImdbRow>() {
+        if let Ok(imdb_row)  = line {
+            result.push(imdb_row.Const);
         }
     }
     result
