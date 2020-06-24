@@ -2,9 +2,10 @@ use std::thread::sleep;
 use std::time;
 
 use serde::Deserialize;
+use ureq::Response;
 
 use crate::config::Config;
-use crate::request::get_response;
+use crate::request::get_response_body;
 
 #[derive(Deserialize)]
 struct RToken {
@@ -27,32 +28,19 @@ struct RMagnet {
 }
 
 pub fn get_rarbg_token(config: &Config) -> Option<String> {
-    let mut token: Option<String> = None;
-    let mut complete = false;
-    let mut backoff = config.api_backoff_millis;
-    let mut attempts = 0;
-
-    //TODO: wrap this logic as a function which accepts a function for OK handler
-    while !complete {
-        attempts += 1;
-        let response = get_response(
-            "https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
-        &[("Content-Type", "application/json"), ("Accept", "application/json")]);
-        if response.ok() {
-            if let Ok(token_result) = serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
-                complete = true;
-                token = Some(token_result.token);
+    let ok_response = |response: Box<Response>| -> (bool, Option<String>) {
+        match serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
+            Err(_) => (false, None),
+            Ok(token_result) => {
+                (true, Some(token_result.token))
             }
         }
-        if !complete {
-            if attempts >= config.retries {
-                complete = true;
-            }
-            backoff += config.api_backoff_millis;
-            sleep(time::Duration::from_millis(backoff));
-        }
-    }
-    token
+    };
+    get_response_body("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
+                      &[("Content-Type", "application/json"), ("Accept", "application/json")],
+                      config.api_backoff_millis,
+                      config.retries,
+                      ok_response)
 }
 
 fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet> {
@@ -67,35 +55,25 @@ fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {
 
 //TODO: log to file the list/imdb id/magnet, and details about each step
 pub fn get_rarbg_magnet(config: &Config, token: &str, imdb_guid: &str) -> Option<String> {
-    let mut result: Option<String> = None;
-    let mut complete = false;
-    let mut backoff = config.api_backoff_millis;
-    let mut attempts = 0;
-    while !complete {
-        attempts += 1;
-        let response = get_response(
-            &format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
-            &[("Content-Type", "application/json"), ("Accept", "application/json")]);
-        if response.ok() {
-            if let Ok(search_results) = serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
-                complete = true;
-                //TODO: if filtered magnets is 0 change filter params to get a match?
+    let ok_response = |response: Box<Response>| -> (bool, Option<String>) {
+        match serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
+            Err(_) => (false, None),
+            Ok(search_results) => {
                 let filtered_magnets = filter_magnets(&config, &search_results);
                 if !filtered_magnets.is_empty() {
                     let magnet_match = match_magnet(&config, &filtered_magnets);
-                    result = Some(magnet_match.download.clone());
+                    (true, Some(magnet_match.download.clone()))
+                } else {
+                    (false, None)
                 }
             }
         }
-        if !complete {
-            if attempts >= config.retries {
-                complete = true;
-            }
-            backoff += config.api_backoff_millis;
-            sleep(time::Duration::from_millis(backoff));
-        }
-    }
-    result
+    };
+    get_response_body(&format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
+                      &[("Content-Type", "application/json"), ("Accept", "application/json")],
+                      config.api_backoff_millis,
+                      config.retries,
+                      ok_response)
 }
 
 #[cfg(test)]
