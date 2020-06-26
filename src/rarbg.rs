@@ -30,9 +30,10 @@ struct RMagnet {
 pub fn get_rarbg_token(config: &Config) -> Option<String> {
     get_response_body("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
+                      &[],
                       config.api_backoff_millis,
                       config.retries,
-                      |response: Box<Response>| -> (bool, Option<String>) {
+                      |response| -> (bool, Option<String>) {
                           match serde_json::from_str::<RToken>(&response.into_string().unwrap()) {
                               Err(_) => (false, None),
                               Ok(token_result) => {
@@ -56,9 +57,10 @@ fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {
 pub fn get_rarbg_magnet(config: &Config, token: &str, imdb_guid: &str) -> Option<String> {
     get_response_body(&format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
+                      &[],
                       config.api_backoff_millis,
                       config.retries,
-                      |response: Box<Response>| -> (bool, Option<String>) {
+                      |response| -> (bool, Option<String>) {
                           match serde_json::from_str::<RResults>(&response.into_string().unwrap()) {
                               Err(_) => (false, None),
                               Ok(search_results) => {
