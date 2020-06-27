@@ -131,12 +131,15 @@ fn main() {
         for item_metadata in plex_metadata {
             if let Some(tmdb_title) = get_movie_title(&config, &item_metadata.imdb_guid()) {
                 if item_metadata.title != tmdb_title {
-                    //update plex title
+                    println!("Updating ratingKey {} imdb_id {} from \"{}\" to \"{}\"",
+                             item_metadata.ratingKey,
+                             item_metadata.imdb_guid(),
+                             item_metadata.title,
+                             tmdb_title);
+                    plex::put_plex_movie_metadata(&config, &item_metadata.ratingKey, &tmdb_title);
                 }
             }
         }
-        //iterate plex_guids and titles
-        //should refactor plex list
     }
 }
 

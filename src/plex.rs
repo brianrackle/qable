@@ -17,6 +17,7 @@ struct PlexMediaContainer {
 pub struct PlexMetadata {
     pub guid: String,
     pub title: String,
+    pub ratingKey: String,
 }
 
 impl PlexMetadata {
