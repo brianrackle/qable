@@ -7,7 +7,6 @@ pub struct Config {
     pub move_completed_path: String,
     pub download_location: String,
     pub plex_server_library: String,
-    pub backup_plex_server_library: String,
     pub plex_token: String,
     pub min_file_size: i64,
     pub ideal_file_size: i64,

@@ -13,7 +13,7 @@ pub fn get_imdb_list(list: &str) -> Vec<String> {
     let mut result: Vec<String> = Vec::new();
     let mut rdr = csv::Reader::from_reader(csv.as_bytes());
     for line in rdr.deserialize::<ImdbRow>() {
-        if let Ok(imdb_row)  = line {
+        if let Ok(imdb_row) = line {
             result.push(imdb_row.Const);
         }
     }

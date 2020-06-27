@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::config::Config;
-use crate::request::{get_response_body, put_response};
+use crate::request::{get_response_data, put_response};
 
 #[derive(Deserialize)]
 struct PlexResults {
@@ -14,10 +14,15 @@ struct PlexMediaContainer {
 }
 
 #[derive(Deserialize)]
-struct PlexMetadata {
-    guid: String,
-    title: String,
-    titleSort: String,
+pub struct PlexMetadata {
+    pub guid: String,
+    pub title: String,
+}
+
+impl PlexMetadata {
+    pub fn imdb_guid(&self) -> String {
+        self.guid[26..35].to_lowercase()
+    }
 }
 
 pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &String) {
@@ -37,42 +42,22 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &Str
             ("titleSort.locked", "1")]);
 }
 
-//TODO: move X-Plex-Token to header
-//TODO: pass in config and move to request module
-pub fn get_plex_library_guids(config: &Config) -> Option<Vec<String>> {
-    //TODO: refactor when return type is generic
-    // let t = get_response_body(
-    //     &format!("{}all", config.plex_server_library),
-    //     &[
-    //         ("Content-Type", "application/json"),
-    //         ("Accept", "application/json"),
-    //         ("X-Plex-Token", &config.plex_token)
-    //     ],
-    //     &[],
-    //     config.api_backoff_millis,
-    //     config.retries,
-    //     |x| -> (bool, Option<String>){
-    //         let response = resp.into_string().unwrap();
-    //         let s: PlexResults = serde_json::from_str(&response).unwrap();
-    //         result = Some(s.MediaContainer.Metadata.iter()
-    //             .map(|x| String::from(&x.guid[26..35]).to_lowercase()).collect());
-    //         (true, result)
-    // });
-
-    let mut result: Option<Vec<String>> = None;
-    let path = format!("{}all", config.plex_server_library);
-    let resp = ureq::get(path.as_str())
-        .set("Content-Type", "application/json")
-        .set("Accept", "application/json")
-        .set("X-Plex-Token", &config.plex_token)
-        .call();
-    if resp.ok() {
-        let response = resp.into_string().unwrap();
-        let s: PlexResults = serde_json::from_str(&response).unwrap();
-        result = Some(s.MediaContainer.Metadata.iter()
-            .map(|x| String::from(&x.guid[26..35]).to_lowercase()).collect());
-    }
-    result
+pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
+    get_response_data(
+        &format!("{}all", config.plex_server_library),
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json"),
+            ("X-Plex-Token", &config.plex_token)
+        ],
+        &[],
+        config.api_backoff_millis,
+        config.retries,
+        |resp| -> (bool, Option<Vec<PlexMetadata>>){
+            let response = resp.into_string().unwrap();
+            let s: PlexResults = serde_json::from_str(&response).unwrap();
+            (true, Some(s.MediaContainer.Metadata))
+    })
 }
 
 #[cfg(test)]

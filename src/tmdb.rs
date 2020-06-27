@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 use crate::config::Config;
-use crate::request::get_response_body;
+use crate::request::get_response_data;
 
 #[derive(Deserialize)]
 struct FindResponse {
@@ -15,15 +15,15 @@ struct FindMovieResults {
 }
 
 pub fn get_movie_title(config: &Config, imdb_id: &str) -> Option<String> {
-    get_response_body(&format!("https://api.themoviedb.org/3/find/{}", imdb_id),
+    get_response_data(&format!("https://api.themoviedb.org/3/find/{}", imdb_id),
                       &[
-                          ("Authorization", &format!("Bearer {}",config.tmdb_v4_api_key)),
+                          ("Authorization", &format!("Bearer {}", config.tmdb_v4_api_key)),
                           ("Content-Type", "application/json;charset=utf-8"),
                           ("Accept", "application/json")
                       ],
                       &[
-                          ("language","en-US"),
-                          ("external_source","imdb_id")
+                          ("language", "en-US"),
+                          ("external_source", "imdb_id")
                       ],
                       config.api_backoff_millis,
                       config.retries,

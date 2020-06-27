@@ -5,7 +5,7 @@ use serde::Deserialize;
 use ureq::Response;
 
 use crate::config::Config;
-use crate::request::get_response_body;
+use crate::request::get_response_data;
 
 #[derive(Deserialize)]
 struct RToken {
@@ -28,7 +28,7 @@ struct RMagnet {
 }
 
 pub fn get_rarbg_token(config: &Config) -> Option<String> {
-    get_response_body("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
+    get_response_data("https://torrentapi.org/pubapi_v2.php?get_token=get_token&app_id=qable",
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
                       &[],
                       config.api_backoff_millis,
@@ -55,7 +55,7 @@ fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {
 
 //TODO: log to file the list/imdb id/magnet, and details about each step
 pub fn get_rarbg_magnet(config: &Config, token: &str, imdb_guid: &str) -> Option<String> {
-    get_response_body(&format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
+    get_response_data(&format!("https://torrentapi.org/pubapi_v2.php?mode=search&search_imdb={}&format=json_extended&token={}&app_id=qable", imdb_guid, token),
                       &[("Content-Type", "application/json"), ("Accept", "application/json")],
                       &[],
                       config.api_backoff_millis,

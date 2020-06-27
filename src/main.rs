@@ -9,7 +9,7 @@ use clap::{App, Arg, ArgMatches};
 use config::Config;
 use deluge::add_torrent;
 use imdb::get_imdb_list;
-use plex::get_plex_library_guids;
+use plex::{get_plex_library_guids, PlexMetadata};
 use rarbg::{get_rarbg_magnet, get_rarbg_token};
 use tmdb::get_movie_title;
 
@@ -21,32 +21,32 @@ mod deluge;
 mod plex;
 mod rarbg;
 
-
-fn add_torrent_by_imdb_id(config: &Config, token_option: &Option<String>, plex_guids_option: &Option<Vec<String>>, imdb_id: &str, has_title: bool) {
+//TODO: refactor this into a function which retuns a tuple of all unwrapped data?
+fn add_torrent_by_imdb_id(config: &Config,
+                          token_option: &Option<String>,
+                          plex_metadata: &[PlexMetadata],
+                          imdb_id: &str,
+                          title_option: Option<String>) {
     let mut err_index = 0usize;
     let errors = [
         format!("Skipping (Title Not Found) {}", &imdb_id),
         format!("Skipping (Unable to Retrieve Token) {}", &imdb_id),
-        format!("Skipping (Plex GUIDs Not Found) {}", &imdb_id),
         format!("Skipping (Already Exists) {}", &imdb_id),
         format!("Skipping (Magnet Not Found) {}", &imdb_id),
     ];
 
     //TODO: change err_index to some/none to make error logic better
-    if has_title {
+    if let Some(title) = title_option {
         err_index += 1;
         if let Some(token) = token_option {
             err_index += 1;
-            if let Some(plex_guids) = plex_guids_option {
+            if !plex_metadata.iter().any(|x| x.imdb_guid() == imdb_id.to_lowercase()) {
                 err_index += 1;
-                if !plex_guids.contains(&imdb_id.to_lowercase()) {
+                if let Some(magnet) = get_rarbg_magnet(&config, &token, &imdb_id) {
                     err_index += 1;
-                    if let Some(magnet) = get_rarbg_magnet(&config, &token, &imdb_id) {
-                        err_index += 1;
-                        add_torrent(&config, &magnet);
-                        println!("Downloading {}", &imdb_id);
-                        sleep(time::Duration::from_millis(config.list_frequency_millis));
-                    }
+                    add_torrent(&config, &magnet);
+                    println!("Downloading {}: \"{}\"", &imdb_id, &title);
+                    sleep(time::Duration::from_millis(config.list_frequency_millis));
                 }
             }
         }
@@ -83,24 +83,18 @@ fn matches() -> ArgMatches {
             .conflicts_with("magnet")
             .conflicts_with("imdb_id")
             .about("imdb list"))
+        .arg(Arg::with_name("clean")
+            .short('c')
+            .long("clean")
+            .takes_value(false)
+            .conflicts_with("magnet")
+            .conflicts_with("imdb_list")
+            .conflicts_with("imdb_id")
+            .about("imdb list"))
         .get_matches()
 }
 
 fn main() {
-    //TODO: split into individual tools joined by a single application
-    //TODO: check for currently downloading and queued by qable
-    //Create database (file) of Pending, Downloading, Downloaded, Existing
-    //search existing plex library
-    //TODO: -v verbose mode, -l log file location
-    //TODO: -l can accept multiple lists
-    //TODO: -d delete duplicate movies from library
-    //TODO: -c clean names in plex library
-    // from plex list "ratingKey": "1641", and guid imdb key (see existing plex list)
-    // then put_plex_movie_metadata
-    //TODO: add minimum imdb rating to config
-
-    //TODO: add ability to compare plex display name with imdb name and fix
-    //TODO: add restart option that will pick up list download from last spot
     let matches = matches();
     let env = match env::var("QABLE") {
         Err(_) => env::var("HOME").expect("$HOME not defined") + "/.qable/config.json",
@@ -113,26 +107,36 @@ fn main() {
         Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
     };
 
-    let plex_guids: Option<Vec<String>> = Some(Vec::new()); //get_plex_library_guids(&config);
+    let plex_metadata = get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
+
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
         let token = get_rarbg_token(&config);
-        //TODO: check if title is a movie using get_move_title
         for imdb_id in get_imdb_list(imdb_list_id).iter() {
             add_torrent_by_imdb_id(&config,
                                    &token,
-                                   &plex_guids,
+                                   &plex_metadata,
                                    &imdb_id,
-                                   get_movie_title(&config, imdb_id).is_some());
+                                   get_movie_title(&config, imdb_id));
         }
     } else if let Some(imdb_id) = matches.value_of("imdb_id") {
         let token = get_rarbg_token(&config);
         add_torrent_by_imdb_id(&config,
                                &token,
-                               &plex_guids,
+                               &plex_metadata,
                                &imdb_id,
-                               get_movie_title(&config, imdb_id).is_some());
+                               get_movie_title(&config, imdb_id));
     } else if let Some(magnet) = matches.value_of("magnet") {
         add_torrent(&config, &magnet);
+    } else if matches.is_present("clean") {
+        for item_metadata in plex_metadata {
+            if let Some(tmdb_title) = get_movie_title(&config, &item_metadata.imdb_guid()) {
+                if item_metadata.title != tmdb_title {
+                    //update plex title
+                }
+            }
+        }
+        //iterate plex_guids and titles
+        //should refactor plex list
     }
 }
 
