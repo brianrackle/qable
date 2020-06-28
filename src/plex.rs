@@ -27,7 +27,7 @@ impl PlexMetadata {
 }
 
 pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &String) {
-    let _ = put_response(
+    put_response(
         &format!("{}all", config.plex_server_library),
         &[
             ("Content-Type", "application/json"),

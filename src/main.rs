@@ -91,6 +91,14 @@ fn matches() -> ArgMatches {
             .conflicts_with("imdb_list")
             .conflicts_with("imdb_id")
             .about("imdb list"))
+        .arg(Arg::with_name("export")
+            .short('e')
+            .long("export")
+            .takes_value(false)
+            .conflicts_with("magnet")
+            .conflicts_with("imdb_list")
+            .conflicts_with("imdb_id")
+            .about("imdb list"))
         .get_matches()
 }
 
@@ -139,6 +147,10 @@ fn main() {
                     plex::put_plex_movie_metadata(&config, &item_metadata.ratingKey, &tmdb_title);
                 }
             }
+        }
+    } else if matches.is_present("export") {
+        for item_metadata in plex_metadata {
+            println!("{}", item_metadata.imdb_guid());
         }
     }
 }

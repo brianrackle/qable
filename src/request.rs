@@ -30,7 +30,6 @@ fn get_response(url: &str,
     get.call()
 }
 
-//TODO: make return type generic
 pub fn get_response_data<T, F>(url: &str,
                                headers: &[(&str, &str)],
                                query: &[(&str, &str)],
