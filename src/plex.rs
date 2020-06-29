@@ -58,7 +58,24 @@ pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
             let response = resp.into_string().unwrap();
             let s: PlexResults = serde_json::from_str(&response).unwrap();
             (true, Some(s.MediaContainer.Metadata))
-    })
+        })
+}
+
+//refresh plex library, movie ids, movie titles, queued, downloading, etc...
+pub fn refresh_plex_library(config : &Config) {
+    get_response_data(
+        &format!("{}refresh", config.plex_server_library),
+        &[
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json"),
+            ("X-Plex-Token", &config.plex_token)
+        ],
+        &[],
+        config.api_backoff_millis,
+        config.retries,
+        |resp| -> (bool, Option<bool>){
+            (true, Some(true))
+        });
 }
 
 #[cfg(test)]

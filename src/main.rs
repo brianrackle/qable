@@ -9,7 +9,7 @@ use clap::{App, Arg, ArgMatches};
 use config::Config;
 use deluge::add_torrent;
 use imdb::get_imdb_list;
-use plex::{get_plex_library_guids, PlexMetadata};
+use plex::{get_plex_library_guids, refresh_plex_library, PlexMetadata};
 use rarbg::{get_rarbg_magnet, get_rarbg_token};
 use tmdb::get_movie_title;
 
@@ -66,39 +66,37 @@ fn matches() -> ArgMatches {
             .short('m')
             .long("magnet")
             .takes_value(true)
-            .conflicts_with("imdb_list")
-            .conflicts_with("imdb_id")
-            .about("Magnet link"))
+            .about("download torrent using magnet link"))
         .arg(Arg::with_name("imdb_id")
-            .short('i')
+            .short('d')
             .long("imdb_id")
             .takes_value(true)
-            .conflicts_with("magnet")
-            .conflicts_with("imdb_list")
-            .about("imdb guid"))
+            .about("download torrent using imdb guid"))
         .arg(Arg::with_name("imdb_list")
             .short('l')
             .long("imdb_list")
             .takes_value(true)
-            .conflicts_with("magnet")
-            .conflicts_with("imdb_id")
-            .about("imdb list"))
+            .about("download torrents using imdb list id"))
         .arg(Arg::with_name("clean")
             .short('c')
             .long("clean")
             .takes_value(false)
-            .conflicts_with("magnet")
-            .conflicts_with("imdb_list")
-            .conflicts_with("imdb_id")
-            .about("imdb list"))
+            .about("clean plex media library"))
         .arg(Arg::with_name("export")
             .short('e')
             .long("export")
             .takes_value(false)
-            .conflicts_with("magnet")
-            .conflicts_with("imdb_list")
-            .conflicts_with("imdb_id")
-            .about("imdb list"))
+            .about("export plex imdb ids"))
+        .arg(Arg::with_name("import")
+            .short('i')
+            .long("import")
+            .takes_value(false)
+            .about("download torrents using imdb id file"))
+        .arg(Arg::with_name("refresh")
+            .short('r')
+            .long("refresh")
+            .takes_value(false)
+            .about("refresh plex library and movie database"))
         .get_matches()
 }
 
@@ -117,7 +115,9 @@ fn main() {
 
     let plex_metadata = get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
 
-    if let Some(imdb_list_id) = matches.value_of("imdb_list") {
+    if let Some(imdb_id_file) = matches.value_of("import") {
+        unimplemented!();
+    } else if let Some(imdb_list_id) = matches.value_of("imdb_list") {
         let token = get_rarbg_token(&config);
         for imdb_id in get_imdb_list(imdb_list_id).iter() {
             add_torrent_by_imdb_id(&config,
@@ -152,6 +152,8 @@ fn main() {
         for item_metadata in plex_metadata {
             println!("{}", item_metadata.imdb_guid());
         }
+    } else if matches.is_present("refresh") {
+        refresh_plex_library(&config);
     }
 }
 
