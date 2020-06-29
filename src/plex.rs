@@ -15,7 +15,7 @@ struct PlexMediaContainer {
 
 #[derive(Deserialize)]
 pub struct PlexMetadata {
-    pub guid: String,
+    guid: String,
     pub title: String,
     pub ratingKey: String,
 }
@@ -28,7 +28,7 @@ impl PlexMetadata {
 
 pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &String) {
     put_response(
-        &format!("{}all", config.plex_server_library),
+        &format!("{}all", config.plex_url),
         &[
             ("Content-Type", "application/json"),
             ("Accept", "application/json"),
@@ -45,7 +45,7 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &Str
 
 pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
     get_response_data(
-        &format!("{}all", config.plex_server_library),
+        &format!("{}all", config.plex_url),
         &[
             ("Content-Type", "application/json"),
             ("Accept", "application/json"),
@@ -62,9 +62,9 @@ pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
 }
 
 //refresh plex library, movie ids, movie titles, queued, downloading, etc...
-pub fn refresh_plex_library(config : &Config) {
+pub fn refresh_plex_library(config: &Config) {
     get_response_data(
-        &format!("{}refresh", config.plex_server_library),
+        &format!("{}refresh", config.plex_url),
         &[
             ("Content-Type", "application/json"),
             ("Accept", "application/json"),

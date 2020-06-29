@@ -1,7 +1,7 @@
 use crate::config::Config;
 
 fn get_cookie(config: &Config) -> Option<String> {
-    ureq::post(&config.path)
+    ureq::post(&config.deluge_url)
         .set("content-type", "application/json")
         .send_json(serde_json::json!({
                 "method":"auth.login",
@@ -12,7 +12,7 @@ fn get_cookie(config: &Config) -> Option<String> {
 
 pub fn add_torrent(config: &Config, magnet: &str) {
     if let Some(cookie) = get_cookie(&config) {
-        ureq::post(&config.path)
+        ureq::post(&config.deluge_url)
             .set("content-type", "application/json")
             .set("Cookie", &cookie)
             .send_json(serde_json::json!({

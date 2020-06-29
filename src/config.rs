@@ -2,11 +2,12 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Config {
-    pub path: String,
+    pub history_file: String,
+    pub deluge_url: String,
     pub password: String,
     pub move_completed_path: String,
     pub download_location: String,
-    pub plex_server_library: String,
+    pub plex_url: String,
     pub plex_token: String,
     pub min_file_size: i64,
     pub ideal_file_size: i64,

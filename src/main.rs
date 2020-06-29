@@ -9,9 +9,12 @@ use clap::{App, Arg, ArgMatches};
 use config::Config;
 use deluge::add_torrent;
 use imdb::get_imdb_list;
-use plex::{get_plex_library_guids, refresh_plex_library, PlexMetadata};
+use plex::{get_plex_library_guids, PlexMetadata, refresh_plex_library};
 use rarbg::{get_rarbg_magnet, get_rarbg_token};
 use tmdb::get_movie_title;
+use crate::history::update_history;
+
+mod history;
 
 mod tmdb;
 mod request;
@@ -113,8 +116,9 @@ fn main() {
         Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
     };
 
-    let plex_metadata = get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
-
+    let plex_metadata = get_plex_library_guids(&config)
+        .expect("Exiting (Plex GUIDs Not Found)");
+    let history = update_history(&config, &plex_metadata);
     if let Some(imdb_id_file) = matches.value_of("import") {
         unimplemented!();
     } else if let Some(imdb_list_id) = matches.value_of("imdb_list") {
