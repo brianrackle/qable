@@ -1,11 +1,20 @@
-use std::borrow::Borrow;
+use core::time;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
+use std::path::Path;
+use std::thread::sleep;
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
-use crate::plex::PlexMetadata;
+use crate::deluge;
+use crate::plex::{get_plex_library_guids, PlexMetadata};
+use crate::rarbg::get_rarbg_magnet;
+
+pub struct MediaManager {
+    pub history: History,
+    pub config: Config,
+}
 
 #[derive(Deserialize, Serialize)]
 pub struct History {
@@ -24,7 +33,7 @@ pub struct Record {
 #[derive(Deserialize, Serialize)]
 pub enum State {
     //Unable to find magnet
-    Unfound,
+    //Unfound,
     //Downloading torrent
     Downloading,
     //Movie in library
@@ -35,73 +44,125 @@ pub enum State {
     //Broken,
 }
 
-//Initialize history and updated it with new PMDs
-//TODO: do a full diff. Item might be in a different state and needs to be upgraded to Downloaded
-pub fn update_history(config: &Config, pmds: &[PlexMetadata]) -> History {
-    save_history(&config, init_history(&config, pmds))
-}
-
-pub fn add_history(config: &Config, record: Record, mut history: History) -> History {
-    history.records.push(record);
-    save_history(&config, history)
-}
-
 //TODO: make history the manager of deluge and plex data
-pub fn add_torrent() {
-    //check if it exists in history and add it as Downloading if it doesnt
-}
-
-//Initialize history from file or from scratch and update it with latest state
-fn init_history(config: &Config, pmds: &[PlexMetadata]) -> History {
-    if let Ok(file) = File::open(&config.history_file) {
-        let reader = BufReader::new(file);
-        let mut history: History = serde_json::from_reader(reader)
-            .expect(&format!("Unable to deserialize history {}", &config.history_file));
-
-        //if pmds doesnt exist in history add it as downloaded
-        let unique_pmds = pmds_not_current(pmds, &history);
-        add_pmds_list(unique_pmds.into_iter(), &mut history);
-        history
-    } else {
-        let mut history = History { records: Vec::new() };
-
-        //add all pmds to history
-        add_pmds_list(pmds.iter(), &mut history);
-        history
-    }
-}
-
-fn save_history(config: &Config, history: History) -> History {
-    let file = OpenOptions::new()
-        .write(true).create_new(true).open(&config.history_file)
-        .expect(&format!("Unable to create history file {}", &config.history_file));
-
-    serde_json::to_writer(BufWriter::new(file), &history)
-        .expect(&format!("Unable to initalize history {}", &config.history_file));
-    history
-}
-
-fn pmds_not_current<'a>(pmds: &'a [PlexMetadata], histories: &History) -> Vec<&'a PlexMetadata> {
-    pmds.iter().filter(|pmd|
-        !histories.records.iter().any(|history|
-            history.imdb_id == pmd.imdb_guid() && (
-                matches!(history.status, State::Downloaded) || matches!(history.status, State::Cleaned)
-            )
-        )).collect()
-}
-
-//TODO: unit test this, lots of complex logic
-fn add_pmds_list<'a>(pmds: impl Iterator<Item=&'a PlexMetadata>, history: &mut History) {
-    for pmd in pmds {
-        let record = Record {
-            imdb_id: pmd.imdb_guid(),
-            title: pmd.title.clone(),
-            status: State::Downloaded,
+impl MediaManager {
+    pub fn new(config_path: &Path) -> MediaManager {
+        let config = match File::open(&config_path) {
+            Err(why) => panic!("couldn't open config: {}", why),
+            Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
         };
+        let pmds = get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
 
-        match history.records.iter_mut().find(|record| record.imdb_id == pmd.imdb_guid()) {
+        let mut manager = MediaManager {
+            config,
+            history: History { records: Vec::new() },
+        };
+        //init is overwriting existing history with plex
+        manager.init_history(&pmds);
+        manager.save_history();
+        manager
+    }
+
+    //TODO: have save options (upsert, insert if doesnt exist)
+    // validate incoming record before saving
+    //could simplify !self.history.records.iter().any(|... logic with (insert if doesnt exists)
+    fn add_record_and_save_history(&mut self, record: Record) {
+        self.upsert_record(record);
+        self.save_history()
+    }
+
+    //check if it exists in history and add it as downloading if it doesnt
+    pub fn add_torrent_and_save(&mut self,
+                                token_option: &Option<String>,
+                                imdb_id: &str,
+                                title_option: Option<String>) {
+        let mut err_index = 0usize;
+        let errors = [
+            format!("Skipping (Title Not Found) {}", &imdb_id),
+            format!("Skipping (Unable to Retrieve Token) {}", &imdb_id),
+            format!("Skipping (Already Exists) {}", &imdb_id),
+            format!("Skipping (Magnet Not Found) {}", &imdb_id),
+        ];
+
+        if let Some(title) = title_option {
+            err_index += 1;
+            if let Some(token) = token_option {
+                err_index += 1;
+                if !self.history.records.iter().any(|x| x.imdb_id == imdb_id.to_lowercase()) {
+                    err_index += 1;
+                    if let Some(magnet) = get_rarbg_magnet(&self.config, &token, &imdb_id) {
+                        err_index += 1;
+                        deluge::add_torrent(&self.config, &magnet);
+                        self.add_record_and_save_history(Record {
+                            imdb_id: imdb_id.to_string(),
+                            title: title.clone(),
+                            status: State::Downloading,
+                        });
+                        println!("Downloading {}: \"{}\"", &imdb_id, &title);
+                        sleep(time::Duration::from_millis(self.config.list_frequency_millis));
+                    }
+                }
+            }
+        }
+
+        if err_index < errors.len() {
+            println!("{}", errors[err_index])
+        }
+    }
+
+    //Initialize history from file or from scratch and update it with latest state
+    fn init_history(&mut self, pmds: &[PlexMetadata]) {
+        match File::open(&self.config.history_file) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+
+                //TODO: this is fucked up it's overwriting the history data with plex data
+                self.history = serde_json::from_reader(reader)
+                    .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
+                let unique_pmds = self.pmds_to_add_or_update(pmds);
+                self.add_pmds_list(unique_pmds.into_iter());
+            }
+            Err(..) => {
+                self.add_pmds_list(pmds.iter());
+            }
+        }
+    }
+
+    fn save_history(&self) {
+        let file = OpenOptions::new()
+            .write(true).create(true).open(&self.config.history_file)
+            .expect(&format!("Unable to create history file {}", &self.config.history_file));
+
+        serde_json::to_writer(BufWriter::new(file), &self.history)
+            .expect(&format!("Unable to initalize history {}", &self.config.history_file));
+    }
+
+    fn pmds_to_add_or_update<'a>(&self, pmds: &'a [PlexMetadata]) -> Vec<&'a PlexMetadata> {
+        pmds.iter().filter(|pmd|
+            !self.history.records.iter().any(|history|
+                history.imdb_id == pmd.imdb_guid() && (
+                    matches!(history.status, State::Downloaded) || matches!(history.status, State::Cleaned)
+                )
+            )).collect()
+    }
+
+    fn add_pmds_list<'a>(&mut self, pmds: impl Iterator<Item=&'a PlexMetadata>) {
+        for pmd in pmds {
+            let record = Record {
+                imdb_id: pmd.imdb_guid(),
+                title: pmd.title.clone(),
+                status: State::Downloaded,
+            };
+
+            self.upsert_record(record);
+        }
+    }
+
+    fn upsert_record(&mut self, record: Record) {
+        match self.history.records.iter_mut().find(
+            |r| r.imdb_id == record.imdb_id) {
             Some(_record) => *_record = record,
-            None => history.records.push(record),
+            None => self.history.records.push(record),
         }
     }
 }
@@ -112,23 +173,43 @@ mod test {
 
     #[test]
     fn test_overwriting_with_add_pmds_list() {
-        let mut history = History {
-            records: vec!(Record {
-                imdb_id: "tt0021749".into(),
-                title: "123".into(),
-                status: State::Downloading,
-            })
+        let mut manager = MediaManager {
+            config: Config {
+                history_file: "".to_string(),
+                deluge_url: "".to_string(),
+                password: "".to_string(),
+                move_completed_path: "".to_string(),
+                download_location: "".to_string(),
+                plex_url: "".to_string(),
+                plex_token: "".to_string(),
+                min_file_size: 0,
+                ideal_file_size: 0,
+                min_seeders: 0,
+                target_categories: vec![],
+                retries: 0,
+                api_backoff_millis: 0,
+                list_frequency_millis: 0,
+                min_imdb_rating: 0,
+                tmdb_v4_api_key: "".to_string()
+            },
+            history: History {
+                records: vec!(Record {
+                    imdb_id: "tt0021749".into(),
+                    title: "123".into(),
+                    status: State::Downloading,
+                })
+            }
         };
-        add_pmds_list(
+        manager.add_pmds_list(
             [
                 PlexMetadata {
                     title: "abc".into(),
                     ratingKey: "123".into(),
                     guid: "com.plexapp.agents.imdb://tt0021749?lang=en".into(),
-                }].iter(), &mut history);
-        assert!(matches!(history.records.first().unwrap().status, State::Downloaded));
-        assert_eq!(history.records.first().unwrap().title, "abc");
-        assert_eq!(history.records.first().unwrap().imdb_id, "tt0021749");
+                }].iter());
 
+        assert!(matches!(manager.history.records.first().unwrap().status, State::Downloaded));
+        assert_eq!(manager.history.records.first().unwrap().title, "abc");
+        assert_eq!(manager.history.records.first().unwrap().imdb_id, "tt0021749");
     }
 }
