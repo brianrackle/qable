@@ -15,7 +15,7 @@ struct PlexMediaContainer {
 
 #[derive(Deserialize)]
 pub struct PlexMetadata {
-    guid: String,
+    pub guid: String,
     pub title: String,
     pub ratingKey: String,
 }

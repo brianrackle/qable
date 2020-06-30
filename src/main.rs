@@ -119,6 +119,7 @@ fn main() {
     let plex_metadata = get_plex_library_guids(&config)
         .expect("Exiting (Plex GUIDs Not Found)");
     let history = update_history(&config, &plex_metadata);
+
     if let Some(imdb_id_file) = matches.value_of("import") {
         unimplemented!();
     } else if let Some(imdb_list_id) = matches.value_of("imdb_list") {

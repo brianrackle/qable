@@ -1,5 +1,7 @@
 use crate::config::Config;
 
+//TODO: turn into Deluge object so that cookie can be re-used
+
 fn get_cookie(config: &Config) -> Option<String> {
     ureq::post(&config.deluge_url)
         .set("content-type", "application/json")
