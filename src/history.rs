@@ -6,10 +6,9 @@ use std::thread::sleep;
 
 use serde::{Deserialize, Serialize};
 
+use crate::{deluge, plex, rarbg, tmdb};
 use crate::config::Config;
-use crate::deluge;
-use crate::plex::{get_plex_library_guids, PlexMetadata};
-use crate::rarbg::get_rarbg_magnet;
+use std::borrow::Borrow;
 
 pub struct MediaManager {
     pub history: History,
@@ -30,7 +29,7 @@ pub struct Record {
     //file: Vec<String>, TODO: Add files
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub enum State {
     //Unable to find magnet
     //Unfound,
@@ -51,7 +50,7 @@ impl MediaManager {
             Err(why) => panic!("couldn't open config: {}", why),
             Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
         };
-        let pmds = get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
+        let pmds = plex::get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
 
         let mut manager = MediaManager {
             config,
@@ -61,14 +60,6 @@ impl MediaManager {
         manager.init_history(&pmds);
         manager.save_history();
         manager
-    }
-
-    //TODO: have save options (upsert, insert if doesnt exist)
-    // validate incoming record before saving
-    //could simplify !self.history.records.iter().any(|... logic with (insert if doesnt exists)
-    fn add_record_and_save_history(&mut self, record: Record) {
-        self.upsert_record(record);
-        self.save_history()
     }
 
     //check if it exists in history and add it as downloading if it doesnt
@@ -90,7 +81,7 @@ impl MediaManager {
                 err_index += 1;
                 if !self.history.records.iter().any(|x| x.imdb_id == imdb_id.to_lowercase()) {
                     err_index += 1;
-                    if let Some(magnet) = get_rarbg_magnet(&self.config, &token, &imdb_id) {
+                    if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &token, &imdb_id) {
                         err_index += 1;
                         deluge::add_torrent(&self.config, &magnet);
                         self.add_record_and_save_history(Record {
@@ -110,13 +101,61 @@ impl MediaManager {
         }
     }
 
+    //TODO:do tmdb search for movies with no plex match
+    pub fn clean_library(&mut self) {
+        let mut updates = Vec::<Record>::new();
+        //TODO: this cant panic because I will lose unsaved history should only get Downloaded records
+        //TODO: are Downloading records already cleaned, if so no need to go back to tmdb?
+        for record in self.history.records.iter()
+            .filter(|r| matches!(r.status, State::Downloaded)){
+            if let Some(tmdb_title) = tmdb::get_movie_title(&self.config, &record.imdb_id) {
+                let updated_record = Record {
+                    imdb_id: record.imdb_id.clone(),
+                    title: tmdb_title.clone(),
+                    status: State::Cleaned,
+                };
+
+                if record.title != tmdb_title {
+                    match plex::find_key_by_imdb_id(&self.config, &record.imdb_id) {
+                        Some(key) => {
+                            plex::put_plex_movie_metadata(&self.config, &key, &tmdb_title);
+                            updates.push(updated_record);
+                            println!("Updating imdb_id {} from \"{}\" to \"{}\"",
+                                     record.imdb_id,
+                                     record.title,
+                                     tmdb_title);
+                        }
+                        None => println!("Unable to update imdb_id (No rating key found) {}", record.imdb_id),
+                    }
+                } else {
+                    updates.push(updated_record);
+                }
+            }
+        }
+
+        //TODO: can change this to a batch operation with save
+        for update in updates {
+            if matches!(update.status, State::Cleaned) {
+                self.add_record_and_save_history(update);
+            } else {
+                panic!("State of {} should be Cleaned but is {:#?}", update.imdb_id, update.status);
+            }
+        }
+    }
+
+    //TODO: have save options (upsert, insert if doesnt exist)
+    // validate incoming record before saving
+    //could simplify !self.history.records.iter().any(|... logic with (insert if doesnt exists)
+    fn add_record_and_save_history(&mut self, record: Record) {
+        self.upsert_record(record);
+        self.save_history()
+    }
+
     //Initialize history from file or from scratch and update it with latest state
-    fn init_history(&mut self, pmds: &[PlexMetadata]) {
+    fn init_history(&mut self, pmds: &[plex::PlexMetadata]) {
         match File::open(&self.config.history_file) {
             Ok(file) => {
                 let reader = BufReader::new(file);
-
-                //TODO: this is fucked up it's overwriting the history data with plex data
                 self.history = serde_json::from_reader(reader)
                     .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
                 let unique_pmds = self.pmds_to_add_or_update(pmds);
@@ -130,14 +169,14 @@ impl MediaManager {
 
     fn save_history(&self) {
         let file = OpenOptions::new()
-            .write(true).create(true).open(&self.config.history_file)
+            .write(true).create(true).truncate(true).open(&self.config.history_file)
             .expect(&format!("Unable to create history file {}", &self.config.history_file));
 
         serde_json::to_writer(BufWriter::new(file), &self.history)
             .expect(&format!("Unable to initalize history {}", &self.config.history_file));
     }
 
-    fn pmds_to_add_or_update<'a>(&self, pmds: &'a [PlexMetadata]) -> Vec<&'a PlexMetadata> {
+    fn pmds_to_add_or_update<'a>(&self, pmds: &'a [plex::PlexMetadata]) -> Vec<&'a plex::PlexMetadata> {
         pmds.iter().filter(|pmd|
             !self.history.records.iter().any(|history|
                 history.imdb_id == pmd.imdb_guid() && (
@@ -146,7 +185,7 @@ impl MediaManager {
             )).collect()
     }
 
-    fn add_pmds_list<'a>(&mut self, pmds: impl Iterator<Item=&'a PlexMetadata>) {
+    fn add_pmds_list<'a>(&mut self, pmds: impl Iterator<Item=&'a plex::PlexMetadata>) {
         for pmd in pmds {
             let record = Record {
                 imdb_id: pmd.imdb_guid(),
@@ -190,7 +229,7 @@ mod test {
                 api_backoff_millis: 0,
                 list_frequency_millis: 0,
                 min_imdb_rating: 0,
-                tmdb_v4_api_key: "".to_string()
+                tmdb_v4_api_key: "".to_string(),
             },
             history: History {
                 records: vec!(Record {
@@ -198,11 +237,11 @@ mod test {
                     title: "123".into(),
                     status: State::Downloading,
                 })
-            }
+            },
         };
         manager.add_pmds_list(
             [
-                PlexMetadata {
+                plex::PlexMetadata {
                     title: "abc".into(),
                     ratingKey: "123".into(),
                     guid: "com.plexapp.agents.imdb://tt0021749?lang=en".into(),

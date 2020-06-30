@@ -1,20 +1,14 @@
 use std::{env, time};
-use std::fs::File;
-use std::io::BufReader;
 use std::path::Path;
 
 use clap::{App, Arg, ArgMatches};
 
-use config::Config;
 use imdb::get_imdb_list;
-use plex::{get_plex_library_guids, PlexMetadata, refresh_plex_library};
-use rarbg::{get_rarbg_magnet, get_rarbg_token};
+use plex::refresh_plex_library;
+use rarbg::get_rarbg_token;
 use tmdb::get_movie_title;
 
-//use crate::history::{add_torrent, update_and_save_history};
-
 mod history;
-
 mod tmdb;
 mod request;
 mod config;
@@ -34,7 +28,7 @@ fn matches() -> ArgMatches {
             .takes_value(true)
             .about("download torrent using magnet link"))
         .arg(Arg::with_name("imdb_id")
-            .short('d')
+            .short('i')
             .long("imdb_id")
             .takes_value(true)
             .about("download torrent using imdb guid"))
@@ -80,18 +74,7 @@ fn main() {
                                            &imdb_id,
                                            get_movie_title(&media_manager.config, imdb_id));
     } else if matches.is_present("clean") {
-        // for item_metadata in plex_metadata {
-        //     if let Some(tmdb_title) = get_movie_title(&media_manager.config, &item_metadata.imdb_guid()) {
-        //         if item_metadata.title != tmdb_title {
-        //             println!("Updating ratingKey {} imdb_id {} from \"{}\" to \"{}\"",
-        //                      item_metadata.ratingKey,
-        //                      item_metadata.imdb_guid(),
-        //                      item_metadata.title,
-        //                      tmdb_title);
-        //             plex::put_plex_movie_metadata(&media_manager.config, &item_metadata.ratingKey, &tmdb_title);
-        //         }
-        //     }
-        // }
+        media_manager.clean_library();
     } else if matches.is_present("refresh") {
         refresh_plex_library(&media_manager.config);
     }

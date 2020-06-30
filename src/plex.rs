@@ -22,11 +22,13 @@ pub struct PlexMetadata {
 
 impl PlexMetadata {
     pub fn imdb_guid(&self) -> String {
-        self.guid[26..35].to_lowercase()
+        self.guid.
+            trim_start_matches("com.plexapp.agents.imdb://")
+            .trim_end_matches("?lang=en").into()
     }
 }
 
-pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &String) {
+pub fn put_plex_movie_metadata(config: &Config, rating_key: &str, title: &str) {
     put_response(
         &format!("{}all", config.plex_url),
         &[
@@ -41,6 +43,13 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &String, title: &Str
             ("titleSort.value", ""),
             ("title.locked", "1"),
             ("titleSort.locked", "1")]);
+}
+
+pub fn find_key_by_imdb_id(config: &Config, imdb_id: &str) -> Option<String> {
+    match get_plex_library_guids(&config).unwrap().iter().find(|pmd| pmd.imdb_guid() == imdb_id) {
+        Some(pmd) => Some(pmd.ratingKey.clone()),
+        None => None
+    }
 }
 
 pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
