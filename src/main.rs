@@ -50,6 +50,7 @@ fn matches() -> ArgMatches {
         .get_matches()
 }
 
+//TODO: implement optimize (replaces existing file with one that more closely matches criteria)
 fn main() {
     let matches = matches();
     let env = match env::var("QABLE") {
@@ -61,20 +62,14 @@ fn main() {
     let mut media_manager = history::MediaManager::new(&config_path);
 
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
-        let token = get_rarbg_token(&media_manager.config);
         for imdb_id in get_imdb_list(imdb_list_id).iter() {
-            media_manager.add_torrent_and_save(&token,
-                                               &imdb_id,
-                                               get_movie_title(&media_manager.config, imdb_id));
+            media_manager.add_torrent(&imdb_id, false);
         }
+        media_manager.save_history();
     } else if let Some(imdb_id) = matches.value_of("imdb_id") {
-        let token = get_rarbg_token(&media_manager.config);
-        media_manager.add_torrent_and_save(
-                                           &token,
-                                           &imdb_id,
-                                           get_movie_title(&media_manager.config, imdb_id));
+        media_manager.add_torrent(&imdb_id, true);
     } else if matches.is_present("clean") {
-        media_manager.clean_library();
+        media_manager.clean_library(true);
     } else if matches.is_present("refresh") {
         refresh_plex_library(&media_manager.config);
     }

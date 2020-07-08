@@ -22,9 +22,13 @@ pub struct PlexMetadata {
 
 impl PlexMetadata {
     pub fn imdb_guid(&self) -> String {
-        self.guid.
-            trim_start_matches("com.plexapp.agents.imdb://")
-            .trim_end_matches("?lang=en").into()
+        if self.guid.starts_with("com.plexapp.agents.imdb://") && self.guid.ends_with("?lang=en") {
+            self.guid.
+                trim_start_matches("com.plexapp.agents.imdb://")
+                .trim_end_matches("?lang=en").into()
+        } else {
+            "".into()
+        }
     }
 }
 
@@ -82,7 +86,7 @@ pub fn refresh_plex_library(config: &Config) {
         &[],
         config.api_backoff_millis,
         config.retries,
-        |resp| -> (bool, Option<bool>){
+        |_| -> (bool, Option<bool>){
             (true, Some(true))
         });
 }

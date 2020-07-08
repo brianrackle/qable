@@ -30,12 +30,12 @@ fn get_response(url: &str,
     get.call()
 }
 
-pub fn get_response_data<T, F>(url: &str,
+pub fn get_response_data<T>(url: &str,
                                headers: &[(&str, &str)],
                                query: &[(&str, &str)],
                                api_backoff_millis: u64,
-                               retries: i8, ok_handler: F) -> Option<T>
-    where F: Fn(Box<Response>) -> (bool, Option<T>) {
+                               retries: i8, ok_handler: impl Fn(Box<Response>) -> (bool, Option<T>))
+    -> Option<T> {
     let mut data: Option<T> = None;
     let mut complete = false;
     let mut backoff = api_backoff_millis;

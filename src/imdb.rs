@@ -9,7 +9,7 @@ struct ImdbRow {
 pub fn get_imdb_list(list: &str) -> Vec<String> {
     let path = format!("https://www.imdb.com/list/{}/export?ref_=ttls_otexp", list);
     let resp = ureq::get(path.as_str()).call();
-    let csv = resp.into_string().unwrap_or_else(|e| String::new());
+    let csv = resp.into_string().unwrap_or_else(|_| String::new());
     let mut result: Vec<String> = Vec::new();
     let mut rdr = csv::Reader::from_reader(csv.as_bytes());
     for line in rdr.deserialize::<ImdbRow>() {
