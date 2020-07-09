@@ -28,11 +28,6 @@ struct History {
     records: HashMap<String, Record>,
 }
 
-#[derive(Deserialize, Serialize)]
-struct HistoryOld {
-    records: Vec<Record>,
-}
-
 #[derive(Deserialize, Serialize, Clone)]
 struct Record {
     imdb_id: String,
