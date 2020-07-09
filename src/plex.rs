@@ -2,6 +2,7 @@ use serde::Deserialize;
 
 use crate::config::Config;
 use crate::request::{get_response_data, put_response};
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 struct PlexResults {
@@ -14,10 +15,20 @@ struct PlexMediaContainer {
 }
 
 #[derive(Deserialize)]
-pub struct PlexMetadata {
-    pub guid: String,
+struct PlexMetadata {
+    guid: String,
+    title: String,
+    ratingKey: String,
+}
+
+pub struct Movies {
+    pub metadata: HashMap<String, Metadata>
+}
+
+pub struct Metadata {
+    pub imdb_id: String,
     pub title: String,
-    pub ratingKey: String,
+    pub plex_key: String,
 }
 
 impl PlexMetadata {
@@ -50,13 +61,13 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &str, title: &str) {
 }
 
 pub fn find_key_by_imdb_id(config: &Config, imdb_id: &str) -> Option<String> {
-    match get_plex_library_guids(&config).unwrap().iter().find(|pmd| pmd.imdb_guid() == imdb_id) {
-        Some(pmd) => Some(pmd.ratingKey.clone()),
+    match get_plex_library_guids(&config).unwrap().metadata.get(imdb_id) {
+        Some(pmd) => Some(pmd.plex_key.clone()),
         None => None
     }
 }
 
-pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
+pub fn get_plex_library_guids(config: &Config) -> Option<Movies> {
     get_response_data(
         &format!("{}all", config.plex_url),
         &[
@@ -67,10 +78,21 @@ pub fn get_plex_library_guids(config: &Config) -> Option<Vec<PlexMetadata>> {
         &[],
         config.api_backoff_millis,
         config.retries,
-        |resp| -> (bool, Option<Vec<PlexMetadata>>){
+        |resp| -> (bool, Option<Movies>){
             let response = resp.into_string().unwrap();
             let s: PlexResults = serde_json::from_str(&response).unwrap();
-            (true, Some(s.MediaContainer.Metadata))
+            let mut movies = Movies{ metadata: Default::default() };
+            for pmd in s.MediaContainer.Metadata {
+                let imdb_id = pmd.imdb_guid();
+                if imdb_id.is_empty() {
+                    movies.metadata.insert(imdb_id.clone(), Metadata{
+                        imdb_id: imdb_id,
+                        title: pmd.title,
+                        plex_key: pmd.ratingKey,
+                    });
+                }
+            }
+            (true, Some(movies))
         })
 }
 
