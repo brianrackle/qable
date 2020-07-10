@@ -35,29 +35,19 @@ enum State {
     Downloading,
     //Movie in library and cleaned
     Cleaned,
-    //TODO: get rid of downloaded state Missing or Downloading should straight to Downloaded
-    //Movie found in library that didn't exist in history
-    //Found,
 }
 
 #[derive(Copy, Clone)]
-enum ChangeOption {
+enum Change {
     Upsert,
     Insert,
     Update,
 }
-
-impl History {
-    pub fn is_record_in_state(&self, imdb_id: &str, status: State) -> bool {
-        match self.records.get(imdb_id) {
-            Some(record) => std::mem::discriminant(&record.status) == std::mem::discriminant(&status),
-            None => false,
-        }
-    }
-}
-
+//TODO: move deluge token into mediamanager
 //TODO: remove deluge entry once movie is Downloaded
 //TODO: record time with state so stuck downloading movies can eventually be cleared
+//TODO: create mapping of magnet count to seeders to prevent low seeder count magnets
+// being used for movies with a lot of options
 impl MediaManager {
     pub fn new(config_path: &Path) -> MediaManager {
         let config = match File::open(&config_path) {
@@ -88,8 +78,7 @@ impl MediaManager {
     }
 
     //check if it exists in history and add it as downloading if it doesnt
-    pub fn add_torrent(&mut self,
-                       imdb_id: &str) -> bool {
+    pub fn add_torrent(&mut self, imdb_id: &str) -> bool {
         let mut success = false;
         if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
             if self.history.records.get(&imdb_id.to_lowercase()).is_none() {
