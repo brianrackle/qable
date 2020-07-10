@@ -44,10 +44,12 @@ enum Change {
     Update,
 }
 //TODO: move deluge token into mediamanager
-//TODO: remove deluge entry once movie is Downloaded
-//TODO: record time with state so stuck downloading movies can eventually be cleared
 //TODO: create mapping of magnet count to seeders to prevent low seeder count magnets
 // being used for movies with a lot of options
+//TODO: replace movies if there is a more optimal size match in magnets (only look for movies 1.x times target size)
+//TODO: record time with state so stuck downloading movies can eventually be cleared
+//TODO: remove deluge entry once movie is Downloaded
+
 impl MediaManager {
     pub fn new(config_path: &Path) -> MediaManager {
         let config = match File::open(&config_path) {
