@@ -14,6 +14,7 @@ pub struct MediaManager {
     history: History,
     movies: plex::Movies,
     rarbg_token: String,
+    deluge_token: String,
     pub config: Config,
 }
 
@@ -58,9 +59,11 @@ impl MediaManager {
         };
         let pmds = plex::get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
         let rarbg_token = rarbg::get_rarbg_token(&config).unwrap();
+        let deluge_token = deluge::get_cookie(&config).unwrap();
         let mut manager = MediaManager {
             config,
             rarbg_token,
+            deluge_token,
             history: History { records: HashMap::new() },
             movies: pmds,
         };
@@ -85,7 +88,7 @@ impl MediaManager {
         if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
             if self.history.records.get(&imdb_id.to_lowercase()).is_none() {
                 if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
-                    deluge::add_torrent(&self.config, &magnet);
+                    deluge::add_torrent(&self.config, &self.deluge_token, &magnet);
                     self.history.records.insert(imdb_id.into(),
                                                 Record {
                                                     imdb_id: imdb_id.to_string(),
@@ -123,7 +126,7 @@ impl MediaManager {
                 for (imdb_id, _record) in in_history_only {
                     if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
                         if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
-                            deluge::add_torrent(&self.config, &magnet);
+                            deluge::add_torrent(&self.config, &self.deluge_token, &magnet);
                             changes.insert(imdb_id.clone(),
                                            (
                                                State::Downloading,

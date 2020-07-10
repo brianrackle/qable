@@ -1,7 +1,7 @@
 use crate::config::Config;
 
 //TODO: turn into Deluge object so that cookie can be re-used
-fn get_cookie(config: &Config) -> Option<String> {
+pub fn get_cookie(config: &Config) -> Option<String> {
     ureq::post(&config.deluge_url)
         .set("content-type", "application/json")
         .send_json(serde_json::json!({
@@ -11,12 +11,11 @@ fn get_cookie(config: &Config) -> Option<String> {
         .header("set-cookie").map(|x| { x.to_owned() })
 }
 
-pub fn add_torrent(config: &Config, magnet: &str) {
-    if let Some(cookie) = get_cookie(&config) {
-        ureq::post(&config.deluge_url)
-            .set("content-type", "application/json")
-            .set("Cookie", &cookie)
-            .send_json(serde_json::json!({
+pub fn add_torrent(config: &Config, cookie: &String, magnet: &str) {
+    ureq::post(&config.deluge_url)
+        .set("content-type", "application/json")
+        .set("Cookie", &cookie)
+        .send_json(serde_json::json!({
                     "method":"web.add_torrents",
                     "params":[
                         [
@@ -40,5 +39,4 @@ pub fn add_torrent(config: &Config, magnet: &str) {
                             ]
                         ],
                     "id":618}));
-    }
 }
