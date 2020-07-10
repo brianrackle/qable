@@ -5,8 +5,6 @@ use clap::{App, Arg, ArgMatches};
 
 use imdb::get_imdb_list;
 use plex::refresh_plex_library;
-use rarbg::get_rarbg_token;
-use tmdb::get_movie_title;
 
 mod history;
 mod tmdb;

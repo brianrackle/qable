@@ -44,9 +44,26 @@ pub fn get_rarbg_token(config: &Config) -> Option<String> {
 }
 
 fn filter_magnets<'a>(config: &Config, results: &'a RResults) -> Vec<&'a RMagnet> {
-    results.torrent_results.iter().filter(|&magnet|
-        config.target_categories.iter().any(|category| magnet.category.ends_with(category))
-            && magnet.seeders >= config.min_seeders && magnet.size > config.min_file_size).collect()
+    let mut magnets: Vec<&RMagnet> = results.torrent_results
+        .iter()
+        .filter(|&magnet|
+            config.target_categories.iter().any(|category| magnet.category.ends_with(category))
+                && magnet.size > config.min_file_size).collect();
+    // determine min seeders
+    let mut max_index = 0usize;
+    for i in 0..config.seeders.len() {
+        let rule = &config.seeders[i];
+        let magnet_count = magnets
+            .iter()
+            .filter(|magnet| magnet.seeders >= rule.min_seeders.into()).count();
+        if magnet_count >= rule.available_magnets.into() {
+            max_index = i;
+        } else {
+            break;
+        }
+    }
+    magnets.retain(|magnet| magnet.seeders >= config.seeders[max_index].min_seeders.into());
+    magnets
 }
 
 fn match_magnet<'a>(config: &Config, magnets: &'a [&RMagnet]) -> &'a RMagnet {

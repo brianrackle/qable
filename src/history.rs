@@ -44,7 +44,7 @@ enum Change {
     Insert,
     Update,
 }
-//TODO: move deluge token into mediamanager
+
 //TODO: create mapping of magnet count to seeders to prevent low seeder count magnets
 // being used for movies with a lot of options
 //TODO: replace movies if there is a more optimal size match in magnets (only look for movies 1.x times target size)
@@ -117,11 +117,12 @@ impl MediaManager {
                 self.history = serde_json::from_reader(reader)
                     .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
 
+                //if not state Downloading... unless timetamp is greater than x days
                 //if torrent can be downloaded, lookup the correct title and update it in history as downloading
                 //if torrent cant be downloaded, change it to missing
                 let in_history_only =
-                    self.history.records.iter().filter(|(key, _record)| {
-                        !self.movies.metadata.contains_key(*key)
+                    self.history.records.iter().filter(|(key, record)| {
+                        !matches!(record.status, State::Downloading) && !self.movies.metadata.contains_key(*key)
                     });
                 for (imdb_id, _record) in in_history_only {
                     if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
