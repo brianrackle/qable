@@ -84,7 +84,7 @@ pub fn get_plex_library_guids(config: &Config) -> Option<Movies> {
             let mut movies = Movies{ metadata: Default::default() };
             for pmd in s.MediaContainer.Metadata {
                 let imdb_id = pmd.imdb_guid();
-                if imdb_id.is_empty() {
+                if !imdb_id.is_empty() {
                     movies.metadata.insert(imdb_id.clone(), Metadata{
                         imdb_id: imdb_id,
                         title: pmd.title,

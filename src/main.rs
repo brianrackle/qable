@@ -63,13 +63,15 @@ fn main() {
 
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
         for imdb_id in get_imdb_list(imdb_list_id).iter() {
-            media_manager.add_torrent(&imdb_id, false);
+            media_manager.add_torrent(&imdb_id);
         }
         media_manager.save_history();
     } else if let Some(imdb_id) = matches.value_of("imdb_id") {
-        media_manager.add_torrent(&imdb_id, true);
+        media_manager.add_torrent(&imdb_id);
+        media_manager.save_history();
     } else if matches.is_present("clean") {
-        media_manager.clean_library(true);
+        //just initialize media manager
+        //could introduce new option to recheck all titles
     } else if matches.is_present("refresh") {
         refresh_plex_library(&media_manager.config);
     }

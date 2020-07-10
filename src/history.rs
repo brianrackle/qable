@@ -1,25 +1,20 @@
 use core::time;
-use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
-use std::iter::{Filter, Map};
-use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::slice::Iter;
 use std::thread::sleep;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{deluge, plex, rarbg, tmdb};
 use crate::config::Config;
-use crate::rarbg::get_rarbg_token;
-use crate::tmdb::get_movie_title;
 
 pub struct MediaManager {
     history: History,
-    pub config: Config,
+    movies: plex::Movies,
     rarbg_token: String,
+    pub config: Config,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -36,12 +31,8 @@ struct Record {
 
 #[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 enum State {
-    //Movie not found in library
-    Missing,
     //Downloading torrent
     Downloading,
-    //Movie in library
-    Downloaded,
     //Movie in library and cleaned
     Cleaned,
     //TODO: get rid of downloaded state Missing or Downloading should straight to Downloaded
@@ -55,14 +46,6 @@ enum ChangeOption {
     Insert,
     Update,
 }
-
-//TODO: use enum to return values as they were entered into history or not
-// #[derive(Clone)]
-// enum Operation {
-//     Modified(Record),
-//     Existing(Record),
-//     Invalid,
-// }
 
 impl History {
     pub fn is_record_in_state(&self, imdb_id: &str, status: State) -> bool {
@@ -82,14 +65,15 @@ impl MediaManager {
             Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
         };
         let pmds = plex::get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
-        let rarbg_token = get_rarbg_token(&config).unwrap();
+        let rarbg_token = rarbg::get_rarbg_token(&config).unwrap();
         let mut manager = MediaManager {
             config,
             rarbg_token,
             history: History { records: HashMap::new() },
+            movies: pmds,
         };
         //init is overwriting existing history with plex
-        manager.init_history(&pmds);
+        manager.init_history();
         manager.save_history();
         manager
     }
@@ -105,214 +89,115 @@ impl MediaManager {
 
     //check if it exists in history and add it as downloading if it doesnt
     pub fn add_torrent(&mut self,
-                       imdb_id: &str,
-                       save: bool) -> bool {
-        let mut err_index = 0usize;
-        let errors = [
-            format!("Skipping (Title Not Found) {}", &imdb_id),
-            format!("Skipping (Already Exists) {}", &imdb_id),
-            format!("Skipping (Magnet Not Found) {}", &imdb_id),
-        ];
-
-        let title_option = get_movie_title(&self.config, imdb_id);
-        if let Some(title) = title_option {
-            err_index += 1;
+                       imdb_id: &str) -> bool {
+        let mut success = false;
+        if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
             if self.history.records.get(&imdb_id.to_lowercase()).is_none() {
-                err_index += 1;
                 if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
-                    err_index += 1;
                     deluge::add_torrent(&self.config, &magnet);
-
-                    self.add_record(
-                        Record {
-                            imdb_id: imdb_id.to_string(),
-                            title: title.clone(),
-                            status: State::Downloading,
-                        },
-                        ChangeOption::Upsert,
-                        |_, _| true);
-                    if save {
-                        self.save_history();
-                    }
-
+                    self.history.records.insert(imdb_id.into(),
+                                                Record {
+                                                    imdb_id: imdb_id.to_string(),
+                                                    title: title.clone(),
+                                                    status: State::Downloading,
+                                                });
                     println!("Downloading {}: \"{}\"", &imdb_id, &title);
+                    success = true;
                     sleep(time::Duration::from_millis(self.config.list_frequency_millis));
                 }
             }
         }
-
-        if err_index < errors.len() {
-            println!("{}", errors[err_index])
+        if !success {
+            println!("Failed to download {}", imdb_id);
         }
-
-        err_index >= errors.len()
+        success
     }
 
-    pub fn clean_library(&mut self, save: bool) {
-        //
-        //imdb_id [history record, pmd]
-        //
-        //
-        //
+    fn init_history(&mut self) {
+        //(imdb_id, Some(State), Some(title)
+        let mut changes: HashMap<String, (State, String)> = Default::default();
 
-
-        let missing_ids: Vec<String> = self.history.records.iter()
-            .filter(|(key, value)| matches!(value.status, State::Missing))
-            .map(|(key, value)| key.clone())
-            .collect();
-
-        for missing_id in missing_ids {
-            self.history.records.remove(&missing_id);
-            self.add_torrent(&missing_id, false);
-        }
-
-        let mut updates = Vec::<Record>::new();
-        for (key, value) in self.history.records.iter()
-            .filter(|(k, v)| matches!(v.status, State::Downloaded)) {
-            if let Some(tmdb_title) = tmdb::get_movie_title(&self.config, &key) {
-                //TODO: modify in place instead
-                let updated_record = Record {
-                    imdb_id: key.clone(),
-                    title: tmdb_title.clone(),
-                    status: State::Cleaned,
-                };
-
-                if value.title != tmdb_title {
-                    if let Some(key) = plex::find_key_by_imdb_id(&self.config, key) {
-                        plex::put_plex_movie_metadata(&self.config, &key, &tmdb_title);
-                        updates.push(updated_record);
-                    }
-                } else {
-                    updates.push(updated_record);
-                }
-            }
-        }
-
-        for update in updates {
-            self.add_record(update,
-                            ChangeOption::Update,
-                            |_, _| true);
-        }
-        if save {
-            self.save_history();
-        }
-    }
-
-    // fn build_history_mapping(&self, pmds: &plex::Movies) {
-    //     let mut map: HashMap<String, (Option<&Record>, Option<&plex::Metadata>)> = HashMap::new();
-    //     for (key, value) in self.history.records.iter() {
-    //         map.insert(key.clone(), (Some(value), None));
-    //     }
-    //     for (imdb_id, metadata) in pmds.metadata {
-    //         if !imdb_id.is_empty() {
-    //             if let Some(value) = map.get_mut(&imdb_id) {
-    //                 value.1 = Some(value);
-    //             } else {
-    //                 map.insert(imdb_id.clone(), (None, Some(pmd)));
-    //             }
-    //         }
-    //     }
-    // }
-
-    //TODO: clean should be automatic during init
-    // Initialize history from file or from scratch and update it with latest state
-    fn init_history(&mut self, pmds: &plex::Movies) {
         match File::open(&self.config.history_file) {
             Ok(file) => {
                 let reader = BufReader::new(file);
-                self.history = serde_json::from_reader(reader).expect(&format!("Unable to deserialize history {}", &self.config.history_file));
+                self.history = serde_json::from_reader(reader)
+                    .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
 
-                self.set_missing_records(pmds);
+                //if torrent can be downloaded, lookup the correct title and update it in history as downloading
+                //if torrent cant be downloaded, change it to missing
+                let in_history_only =
+                    self.history.records.iter().filter(|(key, _record)| {
+                        !self.movies.metadata.contains_key(*key)
+                    });
+                for (imdb_id, _record) in in_history_only {
+                    if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
+                        if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
+                            deluge::add_torrent(&self.config, &magnet);
+                            changes.insert(imdb_id.clone(),
+                                           (
+                                               State::Downloading,
+                                               title.clone(),
+                                           ));
+                        }
+                    }
+                }
 
-                //Update non-cleaned pmds as downloaded  which then allows it to be cleaned next
-                //TODO: MAINTENANCE Can convert this to upsert...
-                self.add_pmds(pmds,
-                              ChangeOption::Update,
-                              |history, record| {
-                                  !history.is_record_in_state(&record.imdb_id, State::Cleaned)
-                              });
+                //insert into history, lookup and set the correct title and add it to history as cleaned
+                let in_movies_only =
+                    self.movies.metadata.iter().filter(|(key, metadata)| {
+                        !self.history.records.contains_key(*key)
+                    });
+                for (imdb_id, metadata) in in_movies_only {
+                    if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
+                        plex::put_plex_movie_metadata(&self.config,
+                                                      &metadata.plex_key,
+                                                      &title);
+                        changes.insert(imdb_id.clone(),
+                                       (
+                                           State::Cleaned,
+                                           title.clone(),
+                                       ));
+                    }
+                }
 
-                //Insert new pmds as downloaded
-                self.add_pmds(pmds, ChangeOption::Insert, |_, _| true);
+                //set the correct title update it in history as cleaned
+                let in_history_and_movies =
+                    self.history.records.iter().filter(|(key, record)| {
+                        !matches!(record.status, State::Cleaned) && self.movies.metadata.contains_key(*key)
+                    });
+                for (imdb_id, record) in in_history_and_movies {
+                    plex::put_plex_movie_metadata(&self.config,
+                                                  &self.movies.metadata[imdb_id].plex_key,
+                                                  &record.title);
+                    changes.insert(imdb_id.clone(),
+                                   (
+                                       State::Cleaned,
+                                       record.title.clone(),
+                                   ));
+                }
             }
             Err(..) => {
-                self.add_pmds(pmds, ChangeOption::Insert, |_, _| true);
-            }
-        }
-    }
-
-    fn add_record(&mut self,
-                  record: Record,
-                  change_option: ChangeOption,
-                  predicate: impl Fn(&History, &Record) -> bool) -> bool {
-        let mut change = false;
-        if !record.imdb_id.is_empty() {
-            change = match change_option {
-                ChangeOption::Upsert => {
-                    self.upsert_record(record, predicate)
-                }
-                ChangeOption::Insert => {
-                    if !self.history.records.contains_key(&record.imdb_id) {
-                        self.upsert_record(record, predicate)
-                    } else {
-                        false
-                    }
-                }
-                ChangeOption::Update => {
-                    if self.history.records.contains_key(&record.imdb_id) {
-                        self.upsert_record(record, predicate)
-                    } else {
-                        false
+                //create new history from scratch,
+                //get correct titles, add them to plex, and create clean records
+                for imdb_id in self.movies.metadata.keys() {
+                    if let Some(title) = tmdb::get_movie_title(&self.config, &imdb_id) {
+                        plex::put_plex_movie_metadata(&self.config, &imdb_id, &title);
+                        changes.insert(imdb_id.clone(),
+                                       (
+                                           State::Cleaned,
+                                           title.clone(),
+                                       ));
                     }
                 }
             }
         }
-        change
-    }
-
-    // Upserts if predicate returns true, or is None
-    fn upsert_record(&mut self,
-                     record: Record,
-                     predicate: impl Fn(&History, &Record) -> bool) -> bool {
-        if predicate(&self.history, &record) {
-            match self.history.records.get_mut(&record.imdb_id) {
-                Some(_value) => *_value = record,
-                None => { self.history.records.insert(record.imdb_id.clone(), record); }
-            }
-            true
-        } else {
-            false
-        }
-    }
-    ///////////////////
-    //Utility Functions
-    ///////////////////
-
-    //adds pmds and returns the ones that were not added/updated
-    fn add_pmds(&mut self, pmds: &plex::Movies, change_option: ChangeOption, predicate: impl Fn(&History, &Record) -> bool) -> Vec<Record> {
-        pmds.metadata.values()
-            .map(MediaManager::pmd_to_record)
-            .filter(|record| {
-                !self.add_record(record.clone(), change_option, &predicate)
-            }).collect()
-    }
-
-    //Make State Missing if item is in History but not Plex library
-    fn set_missing_records(&mut self, pmds: &plex::Movies) {
-        self.history.records.iter_mut()
-            .filter(
-                |(key, value)| {
-                    !pmds.metadata.contains_key(*key)
-                })
-            .for_each(|(key, value)| value.status = State::Missing);
-    }
-
-    //convert a pmd to a movie record. If the pmd exists as downloading, convert it to cleaned
-    fn pmd_to_record(pmd: &plex::Metadata) -> Record {
-        Record {
-            imdb_id: pmd.imdb_id.clone(),
-            title: pmd.title.clone(),
-            status: State::Downloaded,
+        for (imdb_id, (status, title)) in changes {
+            self.history.records.insert(imdb_id.clone(),
+                                        Record {
+                                            imdb_id,
+                                            title,
+                                            status,
+                                        });
         }
     }
 }
