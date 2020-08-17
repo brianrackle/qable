@@ -18,6 +18,7 @@ pub struct Config {
     pub list_frequency_millis: u64,
     pub min_imdb_rating: i8,
     pub tmdb_v4_api_key: String,
+    pub file_size_factor: f32,
 }
 
 //apply additional restrictions if results qualify

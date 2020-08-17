@@ -38,19 +38,13 @@ enum State {
     Cleaned,
 }
 
-#[derive(Copy, Clone)]
-enum Change {
-    Upsert,
-    Insert,
-    Update,
-}
-
-//TODO: create mapping of magnet count to seeders to prevent low seeder count magnets
-// being used for movies with a lot of options
-//TODO: replace movies if there is a more optimal size match in magnets (only look for movies 1.x times target size)
+//TODO: replace movies if there is a more optimal size match in magnets
+// (too big or too small) (only look for movies 1.x times target size)
+// delete or dont download movies which are before certain date
+// delete or dont download movies which are foreign
+// delete or dont download movies that have a budget/box office/rating count less than x
 //TODO: record time with state so stuck downloading movies can eventually be cleared
 //TODO: remove deluge entry once movie is Downloaded
-
 impl MediaManager {
     pub fn new(config_path: &Path) -> MediaManager {
         let config = match File::open(&config_path) {
@@ -102,7 +96,7 @@ impl MediaManager {
             }
         }
         if !success {
-            println!("Failed to download {}", imdb_id);
+            println!("Skipping download {}", imdb_id);
         }
         success
     }
@@ -117,7 +111,6 @@ impl MediaManager {
                 self.history = serde_json::from_reader(reader)
                     .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
 
-                //if not state Downloading... unless timetamp is greater than x days
                 //if torrent can be downloaded, lookup the correct title and update it in history as downloading
                 //if torrent cant be downloaded, change it to missing
                 let in_history_only =
@@ -125,6 +118,7 @@ impl MediaManager {
                         !matches!(record.status, State::Downloading) && !self.movies.metadata.contains_key(*key)
                     });
                 for (imdb_id, _record) in in_history_only {
+                    let mut success = false;
                     if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
                         if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
                             deluge::add_torrent(&self.config, &self.deluge_token, &magnet);
@@ -133,7 +127,13 @@ impl MediaManager {
                                                State::Downloading,
                                                title.clone(),
                                            ));
+                            println!("Downloading {}: \"{}\"", &imdb_id, &title);
+                            success = true;
+                            sleep(time::Duration::from_millis(self.config.list_frequency_millis));
                         }
+                    }
+                    if !success {
+                        println!("Skipping download {}", imdb_id);
                     }
                 }
 
