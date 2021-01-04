@@ -1,7 +1,11 @@
 # qable
 Queue Downloads for Deluge
 
+A Rust application to combine IMBD, Deluge and Plex to find and manage media.
 
+
+TODO
+-----
 TODO: split into individual tools joined by a single application
 
 TODO: check for currently downloading and queued by qable
