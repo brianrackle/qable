@@ -14,52 +14,6 @@ struct FindMovieResults {
     title: String,
 }
 
-#[derive(Deserialize)]
-struct MovieDetails {
-    adult: bool,
-    budget: i32,
-    // genres: [{
-    //         "id": 878,
-    //         "name": "Science Fiction"
-    //         }
-    //         ],
-    id: i32,
-    imdb_id: String,
-    original_language: String,
-    original_title: String,
-    overview: String,
-    popularity: f32,
-    poster_path: String,
-    // "production_companies": [
-    // {
-    // "id": 490,
-    // "logo_path": null,
-    // "name": "New Regency Productions",
-    // "origin_country": "US"
-    // }
-    // ],
-    // "production_countries": [
-    // {
-    // "iso_3166_1": "US",
-    // "name": "United States of America"
-    // }
-    // ],
-    release_date: String, //"2019-09-17",
-    revenue: i32,
-    runtime: i32,
-    // "spoken_languages": [
-    // {
-    // "iso_639_1": "en",
-    // "name": "English"
-    // },
-    // ],
-    status: String, // "Released",
-    tagline: String,
-    title: String,
-    vote_average: f32,
-    vote_count: i32,
-}
-
 pub fn get_movie_title(config: &Config, imdb_id: &str) -> Option<String> {
     request::get_response_data(&format!("https://api.themoviedb.org/3/find/{}", imdb_id),
                       &[

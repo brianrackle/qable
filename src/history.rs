@@ -1,19 +1,15 @@
-use core::time;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
-use std::thread::sleep;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{deluge, plex, rarbg, tmdb};
+use crate::{plex, tmdb};
 use crate::config::Config;
 
 pub struct MediaManager {
     history: History,
     movies: plex::Movies,
-    rarbg_token: String,
-    deluge_token: String,
     pub config: Config,
 }
 
@@ -27,26 +23,22 @@ struct Record {
     imdb_id: String,
     title: String,
     status: State,
-    magnet: Option<String>
 }
 
 #[derive(Deserialize, Serialize, Debug, Copy, Clone)]
 enum State {
-    //Downloading torrent
-    Downloading,
-    //Movie in library and cleaned
-    Cleaned,
+    //Movie in library and title is clean
+    Clean,
+    //Movie in library and title hasnt been checked or is dirty
+    Dirty
 }
 
 impl MediaManager {
     pub fn new(config: Config) -> MediaManager {
         let pmds = plex::get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
-        let rarbg_token = rarbg::get_rarbg_token(&config).unwrap();
-        let deluge_token = deluge::get_cookie(&config).unwrap();
+
         let mut manager = MediaManager {
             config,
-            rarbg_token,
-            deluge_token,
             history: History { records: HashMap::new() },
             movies: pmds,
         };
@@ -65,67 +57,15 @@ impl MediaManager {
             .expect(&format!("Unable to initalize history {}", &self.config.history_file));
     }
 
-    //check if it exists in history and add it as downloading if it doesnt
-    pub fn add_torrent(&mut self, imdb_id: &str) -> bool {
-        let mut success = false;
-        if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
-            if self.history.records.get(&imdb_id.to_lowercase()).is_none() {
-                if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
-                    deluge::add_torrent(&self.config, &self.deluge_token, &magnet);
-                    self.history.records.insert(imdb_id.into(),
-                                                Record {
-                                                    imdb_id: imdb_id.to_string(),
-                                                    title: title.clone(),
-                                                    status: State::Downloading,
-                                                    magnet: Some(magnet),
-                                                });
-                    println!("Downloading {}: \"{}\"", &imdb_id, &title);
-                    success = true;
-                    sleep(time::Duration::from_millis(self.config.list_frequency_millis));
-                }
-            }
-        }
-        if !success {
-            println!("Skipping download {}", imdb_id);
-        }
-        success
-    }
-
     fn init_history(&mut self) {
         //(imdb_id, Some(State), Some(title), Some(Magnet)
-        let mut changes: HashMap<String, (State, String, Option<String>)> = Default::default();
+        let mut changes: HashMap<String, (State, String)> = Default::default();
 
         match File::open(&self.config.history_file) {
             Ok(file) => {
                 let reader = BufReader::new(file);
                 self.history = serde_json::from_reader(reader)
                     .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
-
-                //if torrent can be downloaded, lookup the correct title and update it in history as downloading
-                let in_history_only =
-                    self.history.records.iter().filter(|(key, record)| {
-                        !matches!(record.status, State::Downloading) && !self.movies.metadata.contains_key(*key)
-                    });
-                for (imdb_id, _record) in in_history_only {
-                    let mut success = false;
-                    if let Some(title) = tmdb::get_movie_title(&self.config, imdb_id) {
-                        if let Some(magnet) = rarbg::get_rarbg_magnet(&self.config, &self.rarbg_token, &imdb_id) {
-                            deluge::add_torrent(&self.config, &self.deluge_token, &magnet);
-                            changes.insert(imdb_id.clone(),
-                                           (
-                                               State::Downloading,
-                                               title.clone(),
-                                               Some(magnet.clone())
-                                           ));
-                            println!("Downloading {}: \"{}\"", &imdb_id, &title);
-                            success = true;
-                            sleep(time::Duration::from_millis(self.config.list_frequency_millis));
-                        }
-                    }
-                    if !success {
-                        println!("Skipping download {}", imdb_id);
-                    }
-                }
 
                 //insert into history, lookup and set the correct title and add it to history as cleaned
                 let in_movies_only =
@@ -139,9 +79,8 @@ impl MediaManager {
                                                       &title);
                         changes.insert(imdb_id.clone(),
                                        (
-                                           State::Cleaned,
-                                           title.clone(),
-                                           None
+                                           State::Clean,
+                                           title.clone()
                                        ));
                     }
                 }
@@ -149,7 +88,7 @@ impl MediaManager {
                 //set the correct title update it in history as cleaned
                 let in_history_and_movies =
                     self.history.records.iter().filter(|(key, record)| {
-                        !matches!(record.status, State::Cleaned) && self.movies.metadata.contains_key(*key)
+                        !matches!(record.status, State::Clean) && self.movies.metadata.contains_key(*key)
                     });
                 for (imdb_id, record) in in_history_and_movies {
                     plex::put_plex_movie_metadata(&self.config,
@@ -157,9 +96,8 @@ impl MediaManager {
                                                   &record.title);
                     changes.insert(imdb_id.clone(),
                                    (
-                                       State::Cleaned,
+                                       State::Clean,
                                        record.title.clone(),
-                                       record.magnet.clone(),
                                    ));
                 }
             }
@@ -171,21 +109,19 @@ impl MediaManager {
                         plex::put_plex_movie_metadata(&self.config, &imdb_id, &title);
                         changes.insert(imdb_id.clone(),
                                        (
-                                           State::Cleaned,
-                                           title.clone(),
-                                           None
+                                           State::Clean,
+                                           title.clone()
                                        ));
                     }
                 }
             }
         }
-        for (imdb_id, (status, title, magnet)) in changes {
+        for (imdb_id, (status, title)) in changes {
             self.history.records.insert(imdb_id.clone(),
                                         Record {
                                             imdb_id,
                                             title,
-                                            status,
-                                            magnet
+                                            status
                                         });
         }
     }
