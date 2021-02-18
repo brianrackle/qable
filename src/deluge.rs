@@ -1,6 +1,33 @@
-use crate::config::Config;
+use serde::Deserialize;
 
-//TODO: turn into Deluge object so that cookie can be re-used
+use crate::config::Config;
+use crate::request;
+
+use ureq::json;
+
+//TODO: request should include a random id
+#[derive(Deserialize)]
+pub struct Response<T> {
+    id: String,
+    result: Option<T>,
+    error: Option<Error>,
+}
+
+#[derive(Deserialize)]
+pub struct Error {
+    message: String,
+    code: i32,
+}
+
+type RemoveTorrentResult = bool;
+
+#[derive(Deserialize)]
+pub struct MagnetInfoResult {
+    files_tree: String,
+    name: String,
+    info_hash: String,
+}
+
 pub fn get_cookie(config: &Config) -> Option<String> {
     ureq::post(&config.deluge_url)
         .set("content-type", "application/json")
@@ -38,5 +65,46 @@ pub fn add_torrent(config: &Config, cookie: &String, magnet: &str) {
                                 }
                             ]
                         ],
-                    "id":618}));
+                    "id":42}));
+}
+
+pub fn remove_torrent(config: &Config, cookie: &String, magnet: &str) -> bool {
+    let info_response = request::post_response(&config.deluge_url,
+                           &[("content-type", "application/json"), ("Cookie", &cookie)],
+                           &[],
+                           json!({
+                                "method":"web.get_magnet_info",
+                                "params": [magnet],
+                                "id":42
+                            }));
+
+    let info_result = serde_json::from_str::<Response<MagnetInfoResult>>(&info_response.into_string().unwrap())
+        .expect("Error unpacking magnet response")
+        .result
+        .expect("Error unpacking magnet info");
+    let info_hash = info_result.info_hash;
+
+    let delete_response = request::post_response(&config.deluge_url,
+                                          &[("content-type", "application/json"), ("Cookie", &cookie)],
+                                          &[],
+                                          json!({
+                                "method":"core.remove_torrent",
+                                "params": [info_hash],
+                                "id":42
+                            }));
+
+    //return false if removal is unsuccessful
+    //poll deluge torrents every 60 seconds
+    //poll plex every 60 seconds
+    //if completed torrent is found in plex
+    //then remove completed torrent from deluge
+    //and clean plex entry
+    let delete_result = serde_json::from_str::<Response<RemoveTorrentResult>>(&delete_response.into_string().unwrap())
+        .expect("Error unpacking magnet response")
+        .result
+        .expect("Error unpacking magnet info");
+
+    let info_hash = delete_result;
+    true
+    //use response to get torrent id and remove the torrent
 }

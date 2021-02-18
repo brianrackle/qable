@@ -2,7 +2,6 @@ use core::time;
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter};
-use std::path::Path;
 use std::thread::sleep;
 
 use serde::{Deserialize, Serialize};
@@ -28,6 +27,7 @@ struct Record {
     imdb_id: String,
     title: String,
     status: State,
+    magnet: Option<String>
 }
 
 #[derive(Deserialize, Serialize, Debug, Copy, Clone)]
@@ -38,19 +38,8 @@ enum State {
     Cleaned,
 }
 
-//TODO: replace movies if there is a more optimal size match in magnets
-// (too big or too small) (only look for movies 1.x times target size)
-// delete or dont download movies which are before certain date
-// delete or dont download movies which are foreign
-// delete or dont download movies that have a budget/box office/rating count less than x
-//TODO: record time with state so stuck downloading movies can eventually be cleared
-//TODO: remove deluge entry once movie is Downloaded
 impl MediaManager {
-    pub fn new(config_path: &Path) -> MediaManager {
-        let config = match File::open(&config_path) {
-            Err(why) => panic!("couldn't open config: {}", why),
-            Ok(file) => serde_json::from_reader(BufReader::new(file)).unwrap(),
-        };
+    pub fn new(config: Config) -> MediaManager {
         let pmds = plex::get_plex_library_guids(&config).expect("Exiting (Plex GUIDs Not Found)");
         let rarbg_token = rarbg::get_rarbg_token(&config).unwrap();
         let deluge_token = deluge::get_cookie(&config).unwrap();
@@ -88,6 +77,7 @@ impl MediaManager {
                                                     imdb_id: imdb_id.to_string(),
                                                     title: title.clone(),
                                                     status: State::Downloading,
+                                                    magnet: Some(magnet),
                                                 });
                     println!("Downloading {}: \"{}\"", &imdb_id, &title);
                     success = true;
@@ -102,8 +92,8 @@ impl MediaManager {
     }
 
     fn init_history(&mut self) {
-        //(imdb_id, Some(State), Some(title)
-        let mut changes: HashMap<String, (State, String)> = Default::default();
+        //(imdb_id, Some(State), Some(title), Some(Magnet)
+        let mut changes: HashMap<String, (State, String, Option<String>)> = Default::default();
 
         match File::open(&self.config.history_file) {
             Ok(file) => {
@@ -112,7 +102,6 @@ impl MediaManager {
                     .expect(&format!("Unable to deserialize history {}", &self.config.history_file));
 
                 //if torrent can be downloaded, lookup the correct title and update it in history as downloading
-                //if torrent cant be downloaded, change it to missing
                 let in_history_only =
                     self.history.records.iter().filter(|(key, record)| {
                         !matches!(record.status, State::Downloading) && !self.movies.metadata.contains_key(*key)
@@ -126,6 +115,7 @@ impl MediaManager {
                                            (
                                                State::Downloading,
                                                title.clone(),
+                                               Some(magnet.clone())
                                            ));
                             println!("Downloading {}: \"{}\"", &imdb_id, &title);
                             success = true;
@@ -139,7 +129,7 @@ impl MediaManager {
 
                 //insert into history, lookup and set the correct title and add it to history as cleaned
                 let in_movies_only =
-                    self.movies.metadata.iter().filter(|(key, metadata)| {
+                    self.movies.metadata.iter().filter(|(key, _metadata)| {
                         !self.history.records.contains_key(*key)
                     });
                 for (imdb_id, metadata) in in_movies_only {
@@ -151,6 +141,7 @@ impl MediaManager {
                                        (
                                            State::Cleaned,
                                            title.clone(),
+                                           None
                                        ));
                     }
                 }
@@ -168,6 +159,7 @@ impl MediaManager {
                                    (
                                        State::Cleaned,
                                        record.title.clone(),
+                                       record.magnet.clone(),
                                    ));
                 }
             }
@@ -181,17 +173,19 @@ impl MediaManager {
                                        (
                                            State::Cleaned,
                                            title.clone(),
+                                           None
                                        ));
                     }
                 }
             }
         }
-        for (imdb_id, (status, title)) in changes {
+        for (imdb_id, (status, title, magnet)) in changes {
             self.history.records.insert(imdb_id.clone(),
                                         Record {
                                             imdb_id,
                                             title,
                                             status,
+                                            magnet
                                         });
         }
     }

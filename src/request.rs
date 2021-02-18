@@ -1,8 +1,21 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::thread::sleep;
 use std::time;
 
-use ureq::Response;
+use ureq::{Response, json};
+
+pub fn post_response(url: &str,
+                    headers: &[(&str, &str)],
+                    queries: &[(&str, &str)],
+                    data: serde_json::Value) -> Response {
+    let mut post = ureq::post(url);
+    for header in headers {
+        post.set(header.0, header.1);
+    }
+    for query in queries {
+        post.query(query.0, query.1);
+    }
+    post.send_json(data)
+}
 
 pub fn put_response(url: &str,
                     headers: &[(&str, &str)],
@@ -31,11 +44,12 @@ fn get_response(url: &str,
 }
 
 pub fn get_response_data<T>(url: &str,
-                               headers: &[(&str, &str)],
-                               query: &[(&str, &str)],
-                               api_backoff_millis: u64,
-                               retries: i8, ok_handler: impl Fn(Box<Response>) -> (bool, Option<T>))
-    -> Option<T> {
+                            headers: &[(&str, &str)],
+                            query: &[(&str, &str)],
+                            api_backoff_millis: u64,
+                            retries: u8,
+                            ok_handler: impl Fn(Box<Response>) -> (bool, Option<T>))
+                            -> Option<T> {
     let mut data: Option<T> = None;
     let mut complete = false;
     let mut backoff = api_backoff_millis;

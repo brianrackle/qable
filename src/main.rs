@@ -1,4 +1,4 @@
-use std::{env, time};
+use std::env;
 use std::path::Path;
 
 use clap::{App, Arg, ArgMatches};
@@ -40,11 +40,6 @@ fn matches() -> ArgMatches {
             .long("clean")
             .takes_value(false)
             .about("clean plex media library"))
-        .arg(Arg::with_name("optimize")
-            .short('o')
-            .long("optimize")
-            .takes_value(false)
-            .about("optimize plex media library replacing too small or too large files"))
         .arg(Arg::with_name("refresh")
             .short('r')
             .long("refresh")
@@ -53,7 +48,6 @@ fn matches() -> ArgMatches {
         .get_matches()
 }
 
-//TODO: implement optimize (replaces existing file with one that more closely matches criteria)
 fn main() {
     let matches = matches();
     let env = match env::var("QABLE") {
@@ -61,22 +55,22 @@ fn main() {
         Ok(e) => e,
     };
 
-    let config_path = Path::new(env.as_str());
-    let mut media_manager = history::MediaManager::new(&config_path);
+    let config = config::Config::new(&Path::new(env.as_str()));
 
     if let Some(imdb_list_id) = matches.value_of("imdb_list") {
+        let mut media_manager = history::MediaManager::new(config);
         for imdb_id in get_imdb_list(imdb_list_id).iter() {
             media_manager.add_torrent(&imdb_id);
         }
         media_manager.save_history();
     } else if let Some(imdb_id) = matches.value_of("imdb_id") {
+        let mut media_manager = history::MediaManager::new(config);
         media_manager.add_torrent(&imdb_id);
         media_manager.save_history();
     } else if matches.is_present("clean") {
-        //just initialize media manager
-        //could introduce new option to recheck all titles
+        let _media_manager = history::MediaManager::new(config);
     } else if matches.is_present("refresh") {
-        refresh_plex_library(&media_manager.config);
+        refresh_plex_library(&config);
     }
 }
 

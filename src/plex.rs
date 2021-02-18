@@ -1,8 +1,9 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 use crate::config::Config;
 use crate::request::{get_response_data, put_response};
-use std::collections::HashMap;
 
 #[derive(Deserialize)]
 struct PlexResults {
@@ -55,7 +56,7 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &str, title: &str) {
             ("id", rating_key),
             ("includeExternalMedia", "1"),
             ("title.value", title),
-            ("titleSort.value", ""),
+            ("titleSort.value", title),
             ("title.locked", "1"),
             ("titleSort.locked", "1")]);
 }
@@ -81,11 +82,11 @@ pub fn get_plex_library_guids(config: &Config) -> Option<Movies> {
         |resp| -> (bool, Option<Movies>){
             let response = resp.into_string().unwrap();
             let s: PlexResults = serde_json::from_str(&response).unwrap();
-            let mut movies = Movies{ metadata: Default::default() };
+            let mut movies = Movies { metadata: Default::default() };
             for pmd in s.MediaContainer.Metadata {
                 let imdb_id = pmd.imdb_guid();
                 if !imdb_id.is_empty() {
-                    movies.metadata.insert(imdb_id.clone(), Metadata{
+                    movies.metadata.insert(imdb_id.clone(), Metadata {
                         imdb_id: imdb_id,
                         title: pmd.title,
                         plex_key: pmd.ratingKey,

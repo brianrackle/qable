@@ -1,8 +1,4 @@
-use std::thread::sleep;
-use std::time;
-
 use serde::Deserialize;
-use ureq::Response;
 
 use crate::config::Config;
 use crate::request::get_response_data;
