@@ -40,30 +40,3 @@ pub fn get_movie_title(config: &Config, imdb_id: &str) -> Option<String> {
                           }
                       })
 }
-
-//use to get extra filtering details see movie details struct
-pub fn get_movie_details(config: &Config, tmdb_id: i32) {
-    request::get_response_data(&format!("https://api.themoviedb.org/3/movie/{}", tmdb_id),
-                      &[
-                          ("Authorization", &format!("Bearer {}", config.tmdb_v4_api_key)),
-                          ("Content-Type", "application/json;charset=utf-8"),
-                          ("Accept", "application/json")
-                      ],
-                      &[
-                          ("language", "en-US"),
-                      ],
-                      config.api_backoff_millis,
-                      config.retries,
-                      |response| -> (bool, Option<String>) {
-                          match serde_json::from_str::<FindResponse>(&response.into_string().unwrap()) {
-                              Err(_) => (false, None),
-                              Ok(find_results) => {
-                                  if find_results.movie_results.len() == 1 {
-                                      (true, find_results.movie_results.first().map(|x| x.title.clone()))
-                                  } else {
-                                      (false, None)
-                                  }
-                              }
-                          }
-                      });
-}

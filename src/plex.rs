@@ -19,7 +19,7 @@ struct PlexMediaContainer {
 struct PlexMetadata {
     guid: String,
     title: String,
-    ratingKey: String,
+    ratingKey: String
 }
 
 pub struct Movies {
@@ -59,13 +59,6 @@ pub fn put_plex_movie_metadata(config: &Config, rating_key: &str, title: &str) {
             ("titleSort.value", title),
             ("title.locked", "1"),
             ("titleSort.locked", "1")]);
-}
-
-pub fn find_key_by_imdb_id(config: &Config, imdb_id: &str) -> Option<String> {
-    match get_plex_library_guids(&config).unwrap().metadata.get(imdb_id) {
-        Some(pmd) => Some(pmd.plex_key.clone()),
-        None => None
-    }
 }
 
 pub fn get_plex_library_guids(config: &Config) -> Option<Movies> {

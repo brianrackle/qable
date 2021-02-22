@@ -1,7 +1,7 @@
 use std::thread::sleep;
 use std::time;
 
-use ureq::{Response, json};
+use ureq::{Response};
 
 pub fn post_response(url: &str,
                     headers: &[(&str, &str)],
